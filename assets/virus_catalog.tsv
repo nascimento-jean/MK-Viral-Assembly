@@ -1,0 +1,21 @@
+# MK_Viral-Assembly — catalogo de virus
+# Preencha os caminhos UMA vez; o make_samplesheet.py consulta este arquivo pelo
+# nome do virus (a coluna 'virus' = nome da subpasta no modo --parent).
+#
+# Delimitador: TAB ou virgula (auto-detectado). Linhas com # sao ignoradas.
+# Campos vazios sao permitidos: bed_file e/ou nextclade_dataset em branco =>
+# o pipeline usa o global (--primer_bed / --nextclade_dataset) ou pula a etapa.
+#
+# 'nextclade_dataset' aceita um alias curto (chikv, denv/dengue, sarscov2/covid,
+# orov/oropouche, rsv-a, rsv-b, zika, yfv) OU um nome de catalogo literal com '/'.
+#
+virus	reference	gff	bed_file	nextclade_dataset
+chikv	/home/jean_nascimento/Arquivos_bed_CGLAB/CHIKV.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/CHIKV.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/chikv.bed	chikv
+denv1	/home/jean_nascimento/Arquivos_bed_CGLAB/DENV1.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/DENV1.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/denv_1_primers.bed	denv1
+denv2	/home/jean_nascimento/Arquivos_bed_CGLAB/DENV2.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/DENV2.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/denv_2_primers.bed	denv2
+denv3	/home/jean_nascimento/Arquivos_bed_CGLAB/DENV3.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/DENV3.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/denv_3_primers.bed	denv3
+denv4	/home/jean_nascimento/Arquivos_bed_CGLAB/DENV4.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/DENV4.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/denv_4_primers.bed	denv4
+orov	/home/jean_nascimento/Arquivos_bed_CGLAB/OROV_combined/OROV.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/OROV_combined/OROV.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/OROV_combined/OROV.bed	orov
+sarscov2	/home/jean_nascimento/Arquivos_bed_CGLAB/COV2.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/COV2.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/SARS-CoV-2_artic_5.4.2.bed	sarscov2
+rsva	/home/jean_nascimento/Arquivos_bed_CGLAB/RSVA.reference.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/RSVA_reference.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/RSVA.primer.bed	rsv-a
+rsvb	/home/jean_nascimento/Arquivos_bed_CGLAB/RSVB.reference.fasta	/home/jean_nascimento/Arquivos_bed_CGLAB/RSVB_reference.gff3	/home/jean_nascimento/Arquivos_bed_CGLAB/RSVB.primer.bed	rsv-b

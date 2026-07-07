@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="880" viewBox="0 0 1400 880" role="img" aria-labelledby="title desc">
+  <title id="title">MK-Viral-Assembly pipeline overview</title>
+  <desc id="desc">Workflow diagram showing inputs, processing steps, optional analyses, and generated outputs for the MK-Viral-Assembly viral genome assembly pipeline.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#07111f"/>
+      <stop offset="100%" stop-color="#102b3f"/>
+    </linearGradient>
+    <linearGradient id="main" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f9cf0"/>
+      <stop offset="100%" stop-color="#36d399"/>
+    </linearGradient>
+    <linearGradient id="optional" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="output" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#020617" flood-opacity="0.35"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9cc7d8"/>
+    </marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; }
+      .title { font-size: 42px; font-weight: 800; fill: #f8fafc; }
+      .subtitle { font-size: 19px; font-weight: 500; fill: #b9d6e5; }
+      .section { font-size: 18px; font-weight: 800; fill: #e2e8f0; letter-spacing: .08em; }
+      .box-title { font-size: 20px; font-weight: 800; fill: #ffffff; }
+      .box-text { font-size: 15px; font-weight: 500; fill: #dbeafe; }
+      .small { font-size: 13px; font-weight: 500; fill: #bfdbfe; }
+      .chip { font-size: 12px; font-weight: 800; fill: #07111f; letter-spacing: .05em; }
+      .line { stroke: #9cc7d8; stroke-width: 3; fill: none; marker-end: url(#arrow); opacity: .95; }
+      .dash { stroke: #c4b5fd; stroke-width: 3; fill: none; marker-end: url(#arrow); stroke-dasharray: 8 8; opacity: .95; }
+      .panel { fill: rgba(15, 23, 42, .72); stroke: rgba(148, 163, 184, .32); stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="880" fill="url(#bg)"/>
+  <circle cx="1200" cy="60" r="260" fill="#164e63" opacity="0.18"/>
+  <circle cx="130" cy="760" r="240" fill="#1e3a8a" opacity="0.16"/>
+
+  <text x="70" y="78" class="title">MK-Viral-Assembly</text>
+  <text x="70" y="112" class="subtitle">Virus-agnostic reference-based consensus assembly from paired-end Illumina reads</text>
+
+  <rect x="70" y="150" width="1260" height="640" rx="30" class="panel"/>
+  <text x="105" y="195" class="section">INPUTS</text>
+  <text x="410" y="195" class="section">CORE WORKFLOW</text>
+  <text x="965" y="195" class="section">REPORTS AND OUTPUTS</text>
+
+  <g filter="url(#shadow)">
+    <rect x="95" y="230" width="250" height="120" rx="22" fill="#0f766e"/>
+    <rect x="115" y="250" width="86" height="24" rx="12" fill="#99f6e4"/>
+    <text x="132" y="267" class="chip">FASTQ</text>
+    <text x="120" y="304" class="box-title">Paired-end reads</text>
+    <text x="120" y="330" class="box-text">R1/R2 .fastq.gz files</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="95" y="390" width="250" height="120" rx="22" fill="#155e75"/>
+    <rect x="115" y="410" width="98" height="24" rx="12" fill="#a5f3fc"/>
+    <text x="132" y="427" class="chip">METADATA</text>
+    <text x="120" y="464" class="box-title">Samplesheet</text>
+    <text x="120" y="490" class="box-text">sample, reads, virus, refs</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="95" y="550" width="250" height="145" rx="22" fill="#1d4ed8"/>
+    <rect x="115" y="570" width="112" height="24" rx="12" fill="#bfdbfe"/>
+    <text x="132" y="587" class="chip">REFERENCES</text>
+    <text x="120" y="624" class="box-title">Per-virus assets</text>
+    <text x="120" y="650" class="box-text">FASTA, GFF3, primer BED</text>
+    <text x="120" y="674" class="box-text">Nextclade dataset alias</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="410" y="230" width="230" height="115" rx="22" fill="#0ea5e9"/>
+    <text x="435" y="276" class="box-title">1. Read QC</text>
+    <text x="435" y="305" class="box-text">FastQC raw reads</text>
+    <text x="435" y="329" class="box-text">fastp trimming</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="705" y="230" width="230" height="115" rx="22" fill="#0284c7"/>
+    <text x="730" y="276" class="box-title">2. Alignment</text>
+    <text x="730" y="305" class="box-text">BWA-MEM or minimap2</text>
+    <text x="730" y="329" class="box-text">sorted/indexed BAM</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="410" y="395" width="230" height="135" rx="22" fill="#2563eb"/>
+    <text x="435" y="440" class="box-title">3. Variants</text>
+    <text x="435" y="469" class="box-text">iVar variants</text>
+    <text x="435" y="493" class="box-text">AA annotation with GFF3</text>
+    <text x="435" y="517" class="box-text">mixed-site screen</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="705" y="395" width="230" height="135" rx="22" fill="#059669"/>
+    <text x="730" y="440" class="box-title">4. Consensus</text>
+    <text x="730" y="469" class="box-text">low coverage to N</text>
+    <text x="730" y="493" class="box-text">QC: breadth, depth, %N</text>
+    <text x="730" y="517" class="box-text">per-virus multi-FASTA</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="410" y="585" width="230" height="115" rx="22" fill="#7c3aed"/>
+    <text x="435" y="626" class="box-title">Optional taxonomy</text>
+    <text x="435" y="655" class="box-text">Kraken2 + Krona</text>
+    <text x="435" y="679" class="box-text">host-read depletion</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="705" y="585" width="230" height="115" rx="22" fill="#c026d3"/>
+    <text x="730" y="626" class="box-title">Optional typing</text>
+    <text x="730" y="655" class="box-text">Nextclade lineage/QC</text>
+    <text x="730" y="679" class="box-text">BLAST species ID</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1000" y="230" width="285" height="110" rx="22" fill="#f59e0b"/>
+    <text x="1025" y="273" class="box-title">Consensus FASTA</text>
+    <text x="1025" y="302" class="box-text">per sample + combined</text>
+    <text x="1025" y="326" class="box-text">per segment when needed</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="1000" y="375" width="285" height="110" rx="22" fill="#ea580c"/>
+    <text x="1025" y="418" class="box-title">QC and variant tables</text>
+    <text x="1025" y="447" class="box-text">consensus_qc.tsv</text>
+    <text x="1025" y="471" class="box-text">variants, mixed sites, reads</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="1000" y="520" width="285" height="110" rx="22" fill="#d97706"/>
+    <text x="1025" y="563" class="box-title">Interactive reports</text>
+    <text x="1025" y="592" class="box-text">MultiQC HTML</text>
+    <text x="1025" y="616" class="box-text">per-virus dashboard HTML</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="1000" y="665" width="285" height="80" rx="22" fill="#334155"/>
+    <text x="1025" y="702" class="box-title">Provenance</text>
+    <text x="1025" y="729" class="box-text">timeline, trace, DAG, versions</text>
+  </g>
+
+  <path d="M 345 290 C 370 290, 380 288, 405 288" class="line"/>
+  <path d="M 345 450 C 380 450, 375 318, 405 318" class="line"/>
+  <path d="M 345 620 C 380 620, 375 332, 405 332" class="line"/>
+  <path d="M 640 288 C 665 288, 675 288, 700 288" class="line"/>
+  <path d="M 820 345 C 820 370, 820 370, 820 390" class="line"/>
+  <path d="M 705 462 C 680 462, 665 462, 645 462" class="line"/>
+  <path d="M 640 462 C 665 462, 675 462, 700 462" class="line"/>
+  <path d="M 525 530 C 525 555, 525 555, 525 580" class="dash"/>
+  <path d="M 820 530 C 820 555, 820 555, 820 580" class="dash"/>
+  <path d="M 935 462 C 960 462, 970 288, 995 288" class="line"/>
+  <path d="M 935 462 C 960 462, 970 430, 995 430" class="line"/>
+  <path d="M 935 642 C 960 642, 970 575, 995 575" class="dash"/>
+  <path d="M 820 700 C 820 770, 1120 770, 1120 750" class="dash"/>
+
+  <rect x="100" y="810" width="22" height="22" rx="6" fill="#0ea5e9"/>
+  <text x="135" y="827" class="small">Core steps always run unless explicitly skipped</text>
+  <rect x="445" y="810" width="22" height="22" rx="6" fill="#7c3aed"/>
+  <text x="480" y="827" class="small">Optional modules enabled by parameters/databases</text>
+  <rect x="820" y="810" width="22" height="22" rx="6" fill="#f59e0b"/>
+  <text x="855" y="827" class="small">Published outputs under results/&lt;virus&gt;/</text>
+</svg>

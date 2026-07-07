@@ -1,0 +1,13 @@
+.nextflow*
+work/
+results*/
+testdata/
+*.log
+
+# Local run metadata / lab-specific samplesheets
+samplesheet_cglab*.csv
+*_cglab*.csv
+
+# Downloaded database and dataset caches
+assets/blast_refseq_viral/
+assets/nextclade_datasets/

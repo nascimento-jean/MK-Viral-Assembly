@@ -1,0 +1,36 @@
+report_comment: >
+    This report aggregates QC for the <b>viral-assembly</b> pipeline
+    (virus-agnostic reference-based consensus assembly from Illumina reads).
+
+# Show the custom consensus-QC table
+custom_data:
+    consensus_qc:
+        id: 'consensus_qc'
+        section_name: 'Consensus genome QC'
+        description: 'Per-sample consensus metrics: length, N content, coverage breadth and depth.'
+        plot_type: 'table'
+        pconfig:
+            id: 'consensus_qc_table'
+            namespace: 'Consensus QC'
+        file_format: 'tsv'
+
+sp:
+    consensus_qc:
+        fn: 'consensus_qc_mqc.tsv'
+
+module_order:
+    - fastqc:
+        name: 'FastQC (raw)'
+        path_filters:
+            - '*raw*'
+    - fastp
+    - fastqc:
+        name: 'FastQC (trimmed)'
+        path_filters:
+            - '*trim*'
+    - kraken2
+    - samtools
+
+table_columns_visible:
+    fastp:
+        pct_duplication: False

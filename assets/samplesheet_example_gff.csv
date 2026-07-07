@@ -1,0 +1,4 @@
+sample,fastq_1,fastq_2,virus,reference,gff,bed_file,nextclade_dataset
+chikv_01,/data/reads/chikv_01_R1.fastq.gz,/data/reads/chikv_01_R2.fastq.gz,chikv,/data/refs/CHIKV.fasta,/data/refs/CHIKV.gff3,/data/refs/chikv.bed,chikv
+denv2_02,/data/reads/denv2_02_R1.fastq.gz,/data/reads/denv2_02_R2.fastq.gz,denv2,/data/refs/DENV2.fasta,/data/refs/DENV2.gff3,/data/refs/denv2.bed,dengue
+orov_03,/data/reads/orov_03_R1.fastq.gz,/data/reads/orov_03_R2.fastq.gz,orov,/data/refs/OROV.fasta,/data/refs/OROV.gff3,,orov
