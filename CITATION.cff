@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use MK-Viral-Assembly, please cite it using the metadata below."
+type: software
+title: "MK-Viral-Assembly: a Nextflow pipeline for viral consensus genome assembly"
+version: "1.0.0"
+date-released: "2026-07-07"
+license: MIT
+repository-code: "https://github.com/nascimento-jean/MK-Viral-Assembly"
+url: "https://github.com/nascimento-jean/MK-Viral-Assembly"
+abstract: "MK-Viral-Assembly is a reproducible Nextflow pipeline for reference-based viral consensus genome assembly from paired-end Illumina short reads. It performs read quality control, trimming, reference mapping, variant calling, consensus generation, consensus QC, optional taxonomic screening, optional host-read depletion, optional Nextclade lineage/genotype assignment, optional BLAST species confirmation, MultiQC reporting, and per-virus static HTML dashboard generation."
+authors:
+  - family-names: "Nascimento"
+    given-names: "Jean Phellipe Marques do"
+    orcid: "https://orcid.org/0000-0002-2383-4871"
+    affiliation: "Laboratório Central de Saúde Pública de Alagoas - LACEN-AL"
+keywords:
+  - viral genomics
+  - consensus genome assembly
+  - genomic surveillance
+  - Nextflow
+  - Illumina
+  - public health
+  - virus
+  - bioinformatics

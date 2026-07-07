@@ -491,6 +491,16 @@ Both feed the **Lineages / Genotypes** dashboard tab.
   `--max_time`) → same pipeline scales from a laptop to a SLURM cluster.
 - `-resume` reuses cached results for unchanged steps.
 
+## Citation
+
+If you use MK-Viral-Assembly in a report, publication or surveillance workflow,
+please cite the archived software release. Citation metadata is provided in
+[`CITATION.cff`](CITATION.cff), and Zenodo metadata is provided in
+[`.zenodo.json`](.zenodo.json).
+
+After the first GitHub release is archived by Zenodo, use the DOI shown by
+Zenodo for the specific version you used.
+
 ## Choosing a reference (surveillance-relevant examples)
 
 | Virus         | Example accession |
