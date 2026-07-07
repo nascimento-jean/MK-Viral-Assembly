@@ -29,6 +29,8 @@ The main outputs are:
 If you are new to Nextflow, start with the built-in test below, then adapt one
 of the example commands to your own FASTQ files.
 
+![MK-Viral-Assembly pipeline overview](docs/images/pipeline_overview.png)
+
 ---
 
 ## What it does
