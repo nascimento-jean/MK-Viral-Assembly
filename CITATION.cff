@@ -4,6 +4,7 @@ type: software
 title: "MK-Viral-Assembly: a Nextflow pipeline for viral consensus genome assembly"
 version: "1.0.0"
 date-released: "2026-07-07"
+doi: "10.5281/zenodo.21248992"
 license: MIT
 repository-code: "https://github.com/nascimento-jean/MK-Viral-Assembly"
 url: "https://github.com/nascimento-jean/MK-Viral-Assembly"
@@ -22,3 +23,7 @@ keywords:
   - public health
   - virus
   - bioinformatics
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.21248992"
+    description: "Zenodo archived release DOI for MK-Viral-Assembly v1.0.0."

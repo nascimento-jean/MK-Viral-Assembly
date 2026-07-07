@@ -1,5 +1,7 @@
 # MK-Viral-Assembly
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21248992.svg)](https://doi.org/10.5281/zenodo.21248992)
+
 **A reproducible Nextflow pipeline for reference-based viral genome assembly from paired-end Illumina short reads.**
 
 MK-Viral-Assembly takes paired FASTQ files, maps them to a viral reference
@@ -494,12 +496,14 @@ Both feed the **Lineages / Genotypes** dashboard tab.
 ## Citation
 
 If you use MK-Viral-Assembly in a report, publication or surveillance workflow,
-please cite the archived software release. Citation metadata is provided in
-[`CITATION.cff`](CITATION.cff), and Zenodo metadata is provided in
-[`.zenodo.json`](.zenodo.json).
+please cite the archived software release:
 
-After the first GitHub release is archived by Zenodo, use the DOI shown by
-Zenodo for the specific version you used.
+> Nascimento, J. P. M. do. (2026). MK-Viral-Assembly: a Nextflow pipeline for
+> viral consensus genome assembly (v1.0.0). Zenodo.
+> https://doi.org/10.5281/zenodo.21248992
+
+Citation metadata is provided in [`CITATION.cff`](CITATION.cff), and Zenodo
+metadata is provided in [`.zenodo.json`](.zenodo.json).
 
 ## Choosing a reference (surveillance-relevant examples)
 
