@@ -5,11 +5,10 @@ process BLAST_DB_PREP {
     container "quay.io/biocontainers/blast:2.17.0--h66d330f_0"
 
     // Persistent, run-scoped freshness: the DB lives in --blast_db_dir on the
-    // host. We publish the built DB back there. cache:false so the age check
-    // runs every execution (Nextflow can't wake on a timer; freshness is
-    // enforced on the next run, as agreed).
+    // host, similar to the Nextclade dataset cache. cache:false keeps the age
+    // check running on every execution (Nextflow can't wake on a timer;
+    // freshness is enforced on the next run).
     cache false
-    publishDir "${params.blast_db_dir}", mode: 'copy'
 
     output:
     path "refseq_viral.*"      , emit: db,   optional: true
@@ -24,6 +23,7 @@ process BLAST_DB_PREP {
     DBDIR='${dbdir}'
     MARK="\$DBDIR/refseq_build_date.txt"
     NEED_BUILD=1
+    mkdir -p "\$DBDIR"
 
     if [ -f "\$MARK" ] && ls "\$DBDIR"/refseq_viral.n* >/dev/null 2>&1; then
         built=\$(cat "\$MARK" 2>/dev/null | head -1)
@@ -61,10 +61,12 @@ process BLAST_DB_PREP {
         fetch() {  # fetch <url> <outfile> ; returns 0 on success, 2 on 404, 1 on other fail
             _url="\$1"; _out="\$2"
             if command -v curl >/dev/null 2>&1; then
-                curl -fL -C - --retry "\$MAXTRIES" --retry-delay 5 --retry-all-errors \\
+                set +e
+                curl -fL -C - --retry "\$MAXTRIES" --retry-delay 5 \\
                      --speed-limit "\$MINRATE" --speed-time "\$STALL" \\
                      -o "\$_out" "\$_url"
                 rc=\$?
+                set -e
                 [ "\$rc" -eq 22 ] && return 2   # curl -f: HTTP >=400 (e.g. 404)
                 return \$rc
             else
@@ -83,7 +85,11 @@ process BLAST_DB_PREP {
         while [ "\$n" -le 20 ]; do
             url="\$base/viral.\${n}.1.genomic.fna.gz"
             echo ">> downloading viral.\${n}.1.genomic.fna.gz (server can be slow; floor \${MINRATE} B/s)"
-            fetch "\$url" "viral.\${n}.fna.gz"; rc=\$?
+            if fetch "\$url" "viral.\${n}.fna.gz"; then
+                rc=0
+            else
+                rc=\$?
+            fi
             if [ "\$rc" -eq 0 ]; then
                 echo "   ok: viral.\${n}.1.genomic.fna.gz"; got=1
             elif [ "\$rc" -eq 2 ]; then
@@ -105,6 +111,11 @@ process BLAST_DB_PREP {
         makeblastdb -in refseq_viral.fna -dbtype nucl -parse_seqids -title "RefSeq_viral" -out refseq_viral
         date +%s > refseq_build_date.txt
         rm -f viral.*.fna.gz refseq_viral.fna
+
+        # Persist the finished DB in --blast_db_dir so future runs reuse it.
+        rm -f "\$DBDIR"/refseq_viral.* "\$MARK"
+        cp refseq_viral.* "\$DBDIR"/
+        cp refseq_build_date.txt "\$MARK"
     else
         # reuse: copy the cached DB into the work dir so downstream can find it
         cp "\$DBDIR"/refseq_viral.* .

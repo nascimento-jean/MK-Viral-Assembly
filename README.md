@@ -52,7 +52,7 @@ reads (fastq.gz, PE)
    ├─ samtools stats/flagstat/depth      alignment metrics
    ├─ ivar variants                      variant table (TSV)
    ├─ mixed_sites                        intra-sample heterozygosity screen (contamination signal)
-   ├─ ivar consensus                     consensus genome (FASTA, low-cov → N)
+   ├─ ivar consensus                     consensus genome (FASTA, low-cov/IUPAC → N)
    ├─ consensus_qc.py                    length, %N, breadth ≥Nx, mean/median depth
    ├─ [Nextclade]                        optional clade/lineage/genotype typing (per-run, aggregate)
    │                                     (Oropouche: auto L/M/S tefe datasets by segment)
@@ -328,7 +328,7 @@ See [PARAMETERS.md](PARAMETERS.md) for the complete parameter guide and
 | `--aligner`      | `bwa`   | `bwa` (bwa-mem) or `minimap2` (`-ax sr`) |
 | `--gff`          | –       | GFF3 (CDS) for the reference → `ivar variants` annotates amino-acid changes (adds `aa_change`, e.g. `S:N501Y`); per-sample override via a `gff` samplesheet column |
 | `--primer_bed`   | –       | Global amplicon primer BED → `ivar trim` (e.g. ARTIC / Midnight schemes); per-sample override via the `bed_file` samplesheet column |
-| `--min_cov`      | `20`    | Min coverage to call a consensus base (else `N`); `--min_depth` is a deprecated alias |
+| `--min_cov`      | `20`    | Min coverage to call a consensus base (else `N`); IUPAC ambiguity codes in the consensus are normalized to `N`; `--min_depth` is a deprecated alias |
 | `--min_freq`     | `0.75`  | Min alt-allele frequency for a consensus call |
 | `--min_qual`     | `20`    | Min base quality (ivar) |
 | `--min_map_qual` | `20`    | Min mapping quality |
@@ -442,7 +442,10 @@ reveals every panel).
 
 The **combined multi-FASTA** (`<virus>/consensus/<virus>_consensus[.<run>].fasta`)
 gathers every per-sample consensus for that virus into one file, ready for
-alignment, phylogenetics or database submission. For **segmented** viruses (e.g.
+alignment, phylogenetics or database submission. Per-sample consensus FASTAs and
+the combined multi-FASTA use conservative sequence symbols: low-coverage
+positions and ambiguous IUPAC consensus bases (`R`, `Y`, `S`, `W`, `K`, `M`,
+`B`, `D`, `H`, `V`) are written as `N`. For **segmented** viruses (e.g.
 Oropouche) an extra per-segment file is written too
 (`<virus>_consensus.<segment>[.<run>].fasta`), so each segment can be aligned
 independently. Filenames carry the `--run_name` label when set.

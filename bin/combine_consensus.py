@@ -31,6 +31,12 @@ import sys
 
 # status ranking used for the --min-status threshold (higher = better quality)
 STATUS_RANK = {"FAIL": 0, "WARN": 1, "PASS": 2}
+IUPAC_DEGENERATE = str.maketrans({
+    "R": "N", "Y": "N", "S": "N", "W": "N", "K": "N", "M": "N",
+    "B": "N", "D": "N", "H": "N", "V": "N",
+    "r": "N", "y": "N", "s": "N", "w": "N", "k": "N", "m": "N",
+    "b": "N", "d": "N", "h": "N", "v": "N",
+})
 
 
 def read_tsv(path):
@@ -102,12 +108,17 @@ def sanitize(token):
     return re.sub(r"[^A-Za-z0-9._-]", "_", token)
 
 
+def normalize_consensus_sequence(seq):
+    """Convert ambiguous IUPAC consensus bases to N."""
+    return seq.translate(IUPAC_DEGENERATE)
+
+
 def write_records(path, records):
     with open(path, "w") as out:
         for header, seq in records:
             out.write(">" + header + "\n")
             for s in seq:
-                out.write(s + "\n")
+                out.write(normalize_consensus_sequence(s) + "\n")
 
 
 def main():

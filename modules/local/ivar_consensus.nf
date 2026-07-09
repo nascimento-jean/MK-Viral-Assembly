@@ -40,8 +40,12 @@ process IVAR_CONSENSUS {
         else
             header=">${meta.id}|\${c}"
         fi
-        # replace ivar's header (first line) with ours, keep the sequence body
-        { printf '%s\\n' "\$header"; tail -n +2 _tmp_\${c}.consensus.fa; } >> ${meta.id}.consensus.fa
+        # Replace ivar's header (first line) with ours and normalize ambiguous
+        # IUPAC consensus bases to N. This keeps downstream FASTAs conservative
+        # and avoids carrying degenerate symbols into submission/typing outputs.
+        { printf '%s\\n' "\$header"; tail -n +2 _tmp_\${c}.consensus.fa; } \\
+            | awk '/^>/ { print; next } { gsub(/[RYSWKMBDHVryswkmbdhv]/, "N"); print }' \\
+            >> ${meta.id}.consensus.fa
         # keep the per-contig quality file if ivar produced one
         [ -f _tmp_\${c}.consensus.qual.txt ] && mv _tmp_\${c}.consensus.qual.txt ${meta.id}.\${c}.qual.txt || true
     done

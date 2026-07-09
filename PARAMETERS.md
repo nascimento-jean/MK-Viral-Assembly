@@ -130,6 +130,11 @@ trimming. Suggested values:
 
 `--min_depth` is retained as a deprecated alias; use `--min_cov` in new runs.
 
+After iVar writes the consensus, the pipeline normalizes ambiguous IUPAC bases
+(`R`, `Y`, `S`, `W`, `K`, `M`, `B`, `D`, `H`, `V`, including lowercase forms)
+to `N`. This normalization is applied to the per-sample consensus FASTA files
+and is also enforced when the run-level combined multi-FASTA files are written.
+
 ### `--min_freq <0-1>` — default: `0.75`
 
 Minimum alternate-allele frequency used for the consensus call.

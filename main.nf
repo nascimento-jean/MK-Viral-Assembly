@@ -134,7 +134,7 @@ def helpMessage() {
 
     Consensus / variant thresholds:
       --min_cov        Min coverage/depth to call a consensus base
-                       (below -> N)                             [default: ${params.min_cov}]
+                       (below -> N; IUPAC ambiguity codes -> N) [default: ${params.min_cov}]
                        (--min_depth is accepted as a deprecated alias)
       --min_freq       Min alt-allele freq for consensus        [default: ${params.min_freq}]
       --min_qual       Min base quality (ivar)                  [default: ${params.min_qual}]
