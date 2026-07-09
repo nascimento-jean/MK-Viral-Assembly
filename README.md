@@ -294,6 +294,26 @@ orov_03,/data/orov_03_R1.fastq.gz,/data/orov_03_R2.fastq.gz,orov,/refs/OROV.fast
 Empty optional cells fall back to the matching global parameter. If there is no
 global value, that optional step is skipped for that sample.
 
+### Negative controls
+
+Samples whose sample ID or FASTQ filename starts with `CN` are treated as
+negative controls. Examples:
+
+```text
+CN
+CN-Butantan-04
+CN_RUN_17
+```
+
+Valid `CN*` controls run through input validation, read QC/trimming and, when
+`--kraken2_db` is provided, Kraken2/Krona taxonomic screening. They are then
+excluded from host depletion, reference mapping, variant calling, consensus
+generation, Nextclade, BLAST and combined FASTA outputs. Their role is to
+validate the sequencing run, not to produce a consensus genome.
+
+Empty or invalid `CN*` controls are skipped before downstream processing and are
+reported in the dashboard as having no observed viral contamination.
+
 ## Key parameters
 
 See [PARAMETERS.md](PARAMETERS.md) for the complete parameter guide and
@@ -364,6 +384,8 @@ results/
 │   ├── consensus_qc/                 <sample>.consensus_qc.tsv  (length, %N, breadth, depth)
 │   ├── kraken2/                      <sample>.kraken2.report.txt  (only with --kraken2_db)
 │   ├── krona/                        krona.html  +  taxonomy_summary.tsv  (only with --kraken2_db)
+│   ├── run_validation/                negative-control Krona HTML (only when CN* controls + --kraken2_db)
+│   ├── sample_validation/             <sample>.sample_validation.tsv  (input status; skipped/valid/CN*)
 │   ├── nextclade/                    nextclade_summary.tsv  (clade/lineage/genotype; only with --nextclade)
 │   ├── blast/                        blast_summary.tsv  (species confirmation; only with --blast_id)
 │   └── <virus>_dashboard.html        static surveillance dashboard for THIS virus (open in any browser)
@@ -381,6 +403,11 @@ dashboard is a single self-contained file — no server, no internet, no externa
 assets. Open it directly in a browser or attach it to a surveillance report. It is
 organised into **tabs**:
 
+- **Run Validation** — negative-control validation. `CN*` controls are listed
+  individually. Controls with no viral signal are named as validated; controls
+  with viral reads trigger an attention message and show the negative-control
+  Krona result. Empty/problematic CN FASTQs are skipped and reported as having
+  no observed viral contamination.
 - **Overview** — PASS/WARN/FAIL cards, a donut of the run classification,
   aggregate statistics (median completeness/depth, variant totals) and
   histograms of completeness and mean depth.

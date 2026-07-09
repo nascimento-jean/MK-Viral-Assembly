@@ -216,6 +216,26 @@ def load_read_stats(rs_dir):
     return out
 
 
+def load_validation(validation_dir):
+    """Read *.sample_validation.tsv -> {sample: validation row}.
+
+    These rows are produced before any heavy processing step. They include
+    samples skipped because the input FASTQs were empty/truncated/unreadable and
+    mark CN* samples as negative controls for run-level validation.
+    """
+    out = {}
+    if not validation_dir or not os.path.isdir(validation_dir):
+        return out
+    for f in sorted(glob.glob(os.path.join(validation_dir, "*.sample_validation.tsv"))):
+        header, rows = read_tsv(f)
+        for row in rows:
+            r = dict(zip(header, row))
+            sid = r.get("sample")
+            if sid:
+                out[sid] = r
+    return out
+
+
 # ----------------------------------------------------------------------------- helpers
 def classify(completeness, pass_t, warn_t):
     try:
@@ -257,6 +277,15 @@ def ffloat(x, default=0.0):
         return float(x)
     except (TypeError, ValueError):
         return default
+
+
+def human_join(items):
+    items = [str(x) for x in items if str(x)]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + " and " + items[-1]
 
 
 def median(vals):
@@ -474,7 +503,8 @@ def svg_heatmap(row_labels, col_labels, matrix, title,
 
 def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov,
                mixed=None, taxonomy=None, krona_rel=None, nextclade=None, blast=None,
-               nextclade_info=None, blast_info=None, read_stats=None):
+               nextclade_info=None, blast_info=None, read_stats=None,
+               validation=None, validation_krona_rel=None):
     now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     sample_ids = sorted(samples.keys())
     mixed = mixed or {}
@@ -482,6 +512,7 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
     nextclade = nextclade or {}
     blast = blast or {}
     read_stats = read_stats or {}
+    validation = validation or {}
 
     # per-sample summary (ALL row)
     summary = []
@@ -529,6 +560,7 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
     any_nextclade = bool(nextclade)
     any_blast = bool(blast)
     any_typing = any_nextclade or any_blast
+    any_validation = bool(validation)
     # segmented Oropouche => nextclade rows carry lineage_L/M/S
     nc_segmented = any("lineage_L" in r or "lineage_M" in r or "lineage_S" in r
                        for r in nextclade.values())
@@ -572,6 +604,152 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
     hist_depth = svg_vbars(depth_labels, depth_counts,
                            "Mean depth distribution (samples)",
                            colors=["#2b6cb0"] * len(depth_labels))
+
+    # ---------------------------------------------------------------- TAB: Run Validation
+    run_validation_tab = ""
+    if any_validation:
+        controls = [
+            r for _, r in sorted(validation.items())
+            if str(r.get("is_negative_control", "")).lower() == "true"
+            or r.get("sample_role") == "negative_control"
+            or str(r.get("sample", "")).upper().startswith("CN")
+        ]
+        clean_controls = []
+        contaminated_controls = []
+        unknown_controls = []
+        for r in controls:
+            sid = r.get("sample", "")
+            status = (r.get("input_status") or "").lower()
+            tax = taxonomy.get(sid)
+            if status != "valid":
+                clean_controls.append((r, None, "No usable reads; no viral contamination was observed."))
+            elif tax:
+                if ffloat(tax.get("pct_viral", 0)) > 0:
+                    contaminated_controls.append((r, tax))
+                else:
+                    clean_controls.append((r, tax, "No viral contamination was observed."))
+            else:
+                unknown_controls.append((r, None))
+
+        messages = []
+        clean_names = [r.get("sample", "") for r, _, _ in clean_controls]
+        contam_names = [r.get("sample", "") for r, _ in contaminated_controls]
+        unknown_names = [r.get("sample", "") for r, _ in unknown_controls]
+        if not controls:
+            messages.append(
+                '<div class="notice warn"><strong>No negative control sample was detected for this run.</strong> '
+                'Use sample IDs or FASTQ names starting with <code>CN</code> to enable negative-control validation.</div>'
+            )
+        else:
+            if clean_names and not contam_names:
+                messages.append(
+                    '<div class="notice ok"><strong>No viral contamination was observed in the negative control(s). '
+                    'The sequencing run is validated.</strong><br>'
+                    f'Validated negative control(s): {html.escape(human_join(clean_names))}.</div>'
+                )
+            elif clean_names:
+                messages.append(
+                    '<div class="notice ok"><strong>'
+                    f'{html.escape(human_join(clean_names))} showed no viral contamination. '
+                    'The sequencing run is validated for these negative controls.</strong></div>'
+                )
+            if contam_names:
+                noun = "negative control" if len(contam_names) == 1 else "negative controls"
+                messages.append(
+                    '<div class="notice fail"><strong>Attention! Viral contamination was observed in '
+                    f'{noun} {html.escape(human_join(contam_names))}.</strong></div>'
+                )
+            if unknown_names:
+                messages.append(
+                    '<div class="notice warn"><strong>Negative-control viral contamination could not be assessed for '
+                    f'{html.escape(human_join(unknown_names))}.</strong><br>'
+                    'No Kraken2 taxonomy result was available for these valid negative-control sample(s).</div>'
+                )
+
+        def validation_assessment(r, tax):
+            if (r.get("input_status") or "").lower() != "valid":
+                return "No usable reads; no viral contamination observed"
+            if not tax:
+                return "Not assessed"
+            return "Viral contamination detected" if ffloat(tax.get("pct_viral", 0)) > 0 else "No viral contamination observed"
+
+        ctrl_rows = []
+        for r in controls:
+            sid = r.get("sample", "")
+            tax = taxonomy.get(sid)
+            pv = ffloat(tax.get("pct_viral", 0)) if tax else 0.0
+            row_class = ' class="row-fail"' if tax and pv > 0 else ""
+            ctrl_rows.append(
+                f"<tr{row_class}>"
+                f'<td class="mono">{html.escape(sid)}</td>'
+                f'<td>{html.escape(r.get("input_status", "-") or "-")}</td>'
+                f'<td>{html.escape(r.get("input_issue", "") or "—")}</td>'
+                f'<td class="num">{html.escape(tax.get("total_reads", "-") if tax else "-")}</td>'
+                f'<td class="num">{pv:.2f}%</td>'
+                f'<td>{html.escape(tax.get("top_nonhost_taxon", "-") if tax else "-")}</td>'
+                f'<td>{html.escape(validation_assessment(r, tax))}</td>'
+                "</tr>"
+            )
+
+        skipped = [
+            r for _, r in sorted(validation.items())
+            if (r.get("input_status") or "").lower() != "valid"
+            and not (
+                str(r.get("is_negative_control", "")).lower() == "true"
+                or r.get("sample_role") == "negative_control"
+                or str(r.get("sample", "")).upper().startswith("CN")
+            )
+        ]
+        skipped_rows = []
+        for r in skipped:
+            skipped_rows.append(
+                "<tr>"
+                f'<td class="mono">{html.escape(r.get("sample", ""))}</td>'
+                f'<td>{html.escape(r.get("input_issue", "") or "-")}</td>'
+                f'<td>{html.escape(r.get("fastq_1", "") or "-")}</td>'
+                f'<td>{html.escape(r.get("fastq_2", "") or "-")}</td>'
+                "</tr>"
+            )
+        skipped_block = ""
+        if skipped_rows:
+            skipped_block = f"""
+          <h3 style="margin-top:26px">Skipped non-control samples</h3>
+          <p class="muted">These samples had empty, truncated or invalid FASTQs and were skipped
+          before downstream processing so the rest of the run could continue.</p>
+          <div class="table-scroll"><table>
+            <thead><tr><th>Sample</th><th>Reason</th><th>FASTQ 1</th><th>FASTQ 2</th></tr></thead>
+            <tbody>{''.join(skipped_rows)}</tbody>
+          </table></div>"""
+
+        krona_block = ""
+        if contaminated_controls and validation_krona_rel:
+            krona_block = (
+                '<h3 style="margin-top:26px">Negative-control Krona result</h3>'
+                '<p class="muted">Interactive taxonomic composition generated from valid CN* negative-control '
+                'Kraken2 reports. Use this chart to inspect the viral taxa detected in contaminated controls.</p>'
+                f'<p><a href="{html.escape(validation_krona_rel)}" target="_blank" '
+                'style="font-weight:600">Open negative-control Krona in a new tab &rarr;</a></p>'
+                f'<iframe src="{html.escape(validation_krona_rel)}" style="width:100%;height:640px;'
+                'border:1px solid var(--line);border-radius:8px"></iframe>'
+            )
+
+        run_validation_tab = f"""
+          <p class="muted">Run-level validation of negative controls. Samples whose ID or FASTQ
+          filename starts with <code>CN</code> are treated as negative controls. Valid CN* samples
+          are evaluated with Kraken2/Krona and are excluded from consensus assembly.</p>
+          {''.join(messages)}
+          <h3>Negative-control summary</h3>
+          <div class="table-scroll"><table id="tbl-run-validation">
+            <thead><tr>
+              <th>Control</th><th>Input status</th><th>Input issue</th>
+              <th class="num">Kraken2 reads</th><th class="num">Viral fraction</th>
+              <th>Dominant non-host taxon</th><th>Assessment</th>
+            </tr></thead>
+            <tbody>{''.join(ctrl_rows) if ctrl_rows else '<tr><td colspan="7">No CN* controls detected.</td></tr>'}</tbody>
+          </table></div>
+          {krona_block}
+          {skipped_block}
+        """
 
     stat_cards = (
         f'<div class="card"><div class="k">Median completeness</div>'
@@ -993,8 +1171,11 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
     typing_prov = (" <br>" + " &middot; ".join(prov_bits)) if prov_bits else ""
 
     # ---------------------------------------------------------------- tabs assembly
-    tabs = [("overview", "Overview", overview),
-            ("samples", "Samples", samples_tab),
+    tabs = []
+    if any_validation:
+        tabs.append(("run-validation", "Run Validation", run_validation_tab))
+    tabs += [("overview", "Overview", overview),
+             ("samples", "Samples", samples_tab),
             ("coverage", "Coverage", coverage_tab)]
     if any_aa:
         tabs.append(("mutations", "Mutations", mutations_tab))
@@ -1069,6 +1250,12 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
            border-radius:5px; padding:1px 6px; margin:1px 2px; white-space:nowrap; }
     .toolbar { display:flex; gap:14px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
     #flt { padding:7px 11px; border:1px solid var(--line); border-radius:7px; font-size:13.5px; min-width:240px; }
+    .notice { border:1px solid var(--line); border-left-width:6px; border-radius:8px; padding:12px 14px;
+              margin:12px 0; background:#fff; }
+    .notice.ok { border-left-color:#2f855a; background:#f0fff4; }
+    .notice.warn { border-left-color:#b7791f; background:#fffaf0; }
+    .notice.fail { border-left-color:#c53030; background:#fff5f5; }
+    tr.row-fail td { background:#fff5f5; }
     footer { margin-top:40px; font-size:12px; color:#8a97a8; border-top:1px solid var(--line); padding-top:12px; }
     """
 
@@ -1168,6 +1355,10 @@ def main():
                     help="relative path/filename of the Krona HTML to link (e.g. krona/krona.html)")
     ap.add_argument("--read-stats-dir", dest="read_stats_dir", default=None,
                     help="directory of *.read_stats.tsv (raw / post-fastp / post-deplete read counts)")
+    ap.add_argument("--validation-dir", dest="validation_dir", default=None,
+                    help="directory of *.sample_validation.tsv files for Run Validation")
+    ap.add_argument("--validation-krona", dest="validation_krona", default=None,
+                    help="relative path/filename of the CN-only Krona HTML for Run Validation")
     args = ap.parse_args()
 
     samples, breadth_key = load_qc(args.qc_dir)
@@ -1179,13 +1370,15 @@ def main():
     nextclade = load_nextclade(args.nextclade)
     blast = load_blast(args.blast)
     read_stats = load_read_stats(args.read_stats_dir)
+    validation = load_validation(args.validation_dir)
 
     doc = build_html(args.run_name, samples, variants, breadth_key,
                      args.pass_t, args.warn_t, args.min_cov,
                      mixed=mixed, taxonomy=taxonomy, krona_rel=args.krona,
                      nextclade=nextclade, blast=blast,
                      nextclade_info=args.nextclade_info, blast_info=args.blast_info,
-                     read_stats=read_stats)
+                     read_stats=read_stats, validation=validation,
+                     validation_krona_rel=args.validation_krona)
     with open(args.out, "w") as fh:
         fh.write(doc)
     print(f"Wrote dashboard for {len(samples)} sample(s) -> {args.out}")

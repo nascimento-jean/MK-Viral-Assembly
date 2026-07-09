@@ -53,6 +53,33 @@ from sample identifiers. Folder mode requires a global `--reference`.
 
 Use `--fastq_pattern` if filenames do not match the automatic pattern.
 
+### Input FASTQ validation
+
+Every FASTQ pair is checked before the first processing step. Empty files,
+valid gzip files with no reads, truncated gzip files and malformed FASTQ records
+are marked as `skipped` and do not enter downstream modules. The run continues
+with the remaining valid samples.
+
+Per-sample validation files are written to:
+
+```text
+results/<virus>/sample_validation/
+```
+
+### Negative controls (`CN*`)
+
+Samples whose sample ID or FASTQ filename starts with `CN` are treated as
+negative controls. Valid `CN*` controls run through initial read processing and,
+when `--kraken2_db` is provided, Kraken2/Krona taxonomic screening. They are
+excluded from host depletion, reference mapping, variant calling, consensus
+generation, Nextclade, BLAST and combined FASTA outputs.
+
+In the dashboard, the **Run Validation** tab reports each negative control
+separately. Controls without viral signal are named as validated; controls with
+viral signal trigger an attention message and show the negative-control Krona
+result. Empty/problematic `CN*` inputs are skipped and reported as having no
+observed viral contamination.
+
 ### `--reference <reference.fasta>`
 
 Global reference FASTA. It is required unless every samplesheet row provides

@@ -14,6 +14,86 @@ nextflow.enable.dsl = 2
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    INPUT FASTQ VALIDATION HELPERS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+def _basename(obj) {
+    def s = obj == null ? '' : obj.toString()
+    return s.tokenize('/').last().tokenize('\\').last()
+}
+
+def _starts_with_cn(obj) {
+    return _basename(obj).toUpperCase().startsWith('CN')
+}
+
+def is_negative_control(meta, reads) {
+    // Negative controls are detected from the sample id and, as a fallback,
+    // from the FASTQ filename prefix. Examples: CN, CN-Run01, CN_BUTANTAN.
+    return _starts_with_cn(meta.id) || reads.any { r -> _starts_with_cn(r) }
+}
+
+def validate_fastq_gz(read_path) {
+    def path_str = read_path.toString()
+    def p = java.nio.file.Paths.get(path_str)
+    if (!java.nio.file.Files.exists(p)) {
+        return [ok: false, reason: 'missing_file']
+    }
+    def size = java.nio.file.Files.size(p)
+    if (size == 0) {
+        return [ok: false, reason: 'empty_file']
+    }
+    try {
+        def input = java.nio.file.Files.newInputStream(p)
+        def gzip = new java.util.zip.GZIPInputStream(input)
+        def reader = new java.io.BufferedReader(new java.io.InputStreamReader(gzip))
+        def l1 = reader.readLine()
+        if (l1 == null) {
+            reader.close()
+            return [ok: false, reason: 'no_reads']
+        }
+        def l2 = reader.readLine()
+        def l3 = reader.readLine()
+        def l4 = reader.readLine()
+        reader.close()
+        if (l2 == null || l3 == null || l4 == null) {
+            return [ok: false, reason: 'incomplete_fastq_record']
+        }
+        if (!l1.startsWith('@') || !l3.startsWith('+')) {
+            return [ok: false, reason: 'invalid_fastq_format']
+        }
+        return [ok: true, reason: 'ok']
+    } catch (java.util.zip.ZipException e) {
+        return [ok: false, reason: 'invalid_gzip']
+    } catch (java.io.EOFException e) {
+        return [ok: false, reason: 'truncated_gzip']
+    } catch (Exception e) {
+        return [ok: false, reason: "unreadable_fastq:${e.getClass().getSimpleName()}"]
+    }
+}
+
+def annotate_fastq_status(meta, reads, ref) {
+    def r1 = validate_fastq_gz(reads[0])
+    def r2 = validate_fastq_gz(reads[1])
+    def ok = r1.ok && r2.ok
+    def is_cn = is_negative_control(meta, reads)
+    def issue = ok ? '' : "R1=${r1.reason};R2=${r2.reason}"
+    def meta2 = meta + [
+        is_control    : is_cn,
+        sample_role   : is_cn ? 'negative_control' : 'sample',
+        input_status  : ok ? 'valid' : 'skipped',
+        input_issue   : issue,
+        input_fastq_1 : reads[0].toString(),
+        input_fastq_2 : reads[1].toString(),
+    ]
+    if (!ok) {
+        log.warn "[viral-assembly] Skipping sample '${meta.id}' before processing: ${issue}"
+    }
+    return [ meta2, reads, ref ]
+}
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     HELP / PARAMETER SUMMARY
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
@@ -168,8 +248,10 @@ include { KRAKEN2           } from './modules/local/kraken2'
 include { HOST_DEPLETE      } from './modules/local/host_deplete'
 include { KREPORT2KRONA     } from './modules/local/kreport2krona'
 include { KRONA             } from './modules/local/krona'
+include { KRONA as KRONA_VALIDATION } from './modules/local/krona'
 include { TAXONOMY_SUMMARY  } from './modules/local/taxonomy_summary'
 include { ALIGN             } from './subworkflows/local/align'
+include { SAMPLE_VALIDATION } from './modules/local/sample_validation'
 include { IVAR_TRIM         } from './modules/local/ivar_trim'
 include { SAMTOOLS_STATS    } from './modules/local/samtools_stats'
 include { IVAR_VARIANTS     } from './modules/local/ivar_variants'
@@ -216,7 +298,7 @@ workflow {
 
     //
     // Resolve --input: a samplesheet CSV, or a directory of FASTQ files.
-    // -> ch_reads : [ meta, [fq1, fq2], reference_fasta ]
+    // -> ch_reads_raw : [ meta, [fq1, fq2], reference_fasta ]
     //
     def input_file = file(params.input, checkIfExists: true)
 
@@ -228,18 +310,37 @@ workflow {
 
     if ( input_file.isDirectory() ) {
         log.info "[viral-assembly] --input is a directory: auto-discovering paired FASTQ files."
-        ch_reads = discover_fastqs( input_file )
+        ch_reads_raw = discover_fastqs( input_file )
         // folder mode has no per-sample columns -> use the global values for every sample
-        ch_gff   = ch_reads.map { meta, reads, ref -> [ meta, global_gff ] }
-        ch_bed   = ch_reads.map { meta, reads, ref -> [ meta, global_bed ] }
-        ch_ncds  = ch_reads.map { meta, reads, ref -> [ meta, global_ncds ] }
+        ch_gff_raw   = ch_reads_raw.map { meta, reads, ref -> [ meta, global_gff ] }
+        ch_bed_raw   = ch_reads_raw.map { meta, reads, ref -> [ meta, global_bed ] }
+        ch_ncds_raw  = ch_reads_raw.map { meta, reads, ref -> [ meta, global_ncds ] }
     } else {
         INPUT_CHECK ( input_file )
-        ch_reads = INPUT_CHECK.out.reads
-        ch_gff   = INPUT_CHECK.out.gff
-        ch_bed   = INPUT_CHECK.out.bed
-        ch_ncds  = INPUT_CHECK.out.ncds
+        ch_reads_raw = INPUT_CHECK.out.reads
+        ch_gff_raw   = INPUT_CHECK.out.gff
+        ch_bed_raw   = INPUT_CHECK.out.bed
+        ch_ncds_raw  = INPUT_CHECK.out.ncds
     }
+
+    //
+    // Validate input FASTQs before any tool consumes them. Empty/truncated/
+    // unreadable pairs are reported and skipped so one bad sample does not
+    // abort the whole run. Negative controls are auto-detected by CN* sample or
+    // filename prefix and are carried only through the validation/QC/taxonomy
+    // branch, not into consensus assembly.
+    //
+    ch_reads_all = ch_reads_raw.map { meta, reads, ref -> annotate_fastq_status(meta, reads, ref) }
+    SAMPLE_VALIDATION ( ch_reads_all.map { meta, reads, ref -> meta } )
+
+    ch_meta_all = ch_reads_all.map { meta, reads, ref -> [ meta.id, meta ] }
+    ch_reads = ch_reads_all.filter { meta, reads, ref -> meta.input_status == 'valid' }
+
+    // Re-key optional per-sample metadata with the augmented meta map. This keeps
+    // downstream joins consistent after adding input_status/is_control fields.
+    ch_gff  = ch_gff_raw.map  { meta, f -> [ meta.id, f ] }.join( ch_meta_all ).map { id, f, meta -> [ meta, f ] }
+    ch_bed  = ch_bed_raw.map  { meta, f -> [ meta.id, f ] }.join( ch_meta_all ).map { id, f, meta -> [ meta, f ] }
+    ch_ncds = ch_ncds_raw.map { meta, s -> [ meta.id, s ] }.join( ch_meta_all ).map { id, s, meta -> [ meta, s ] }
 
     //
     // Raw-read QC
@@ -270,8 +371,9 @@ workflow {
     //
     ch_taxonomy = Channel.empty()
     ch_krona    = Channel.empty()
-    ch_align_in = ch_trimmed                       // [ meta, reads, ref ]
+    ch_align_in = ch_trimmed.filter { meta, reads, ref -> !meta.is_control }  // [ meta, reads, ref ]
     ch_dehost   = Channel.empty()                  // [ meta, dehosted_reads ] when depletion runs
+    ch_validation_krona = Channel.empty()
     if (params.kraken2_db) {
         KRAKEN2 ( ch_trimmed.map { meta, reads, ref -> [ meta, reads ] }, file(params.kraken2_db, checkIfExists: true) )
         ch_multiqc = ch_multiqc.mix( KRAKEN2.out.report.map { it[1] } )
@@ -285,17 +387,29 @@ workflow {
         KRONA ( KREPORT2KRONA.out.txt.map { meta, t -> [ meta.vdir, t ] }.groupTuple() )
         ch_krona = KRONA.out.html                      // [ vdir, html ]
 
+        // Krona restricted to valid negative controls, used by the Run Validation tab.
+        KRONA_VALIDATION (
+            KREPORT2KRONA.out.txt
+                .filter { meta, t -> meta.is_control }
+                .map { meta, t -> [ meta.vdir, t ] }
+                .groupTuple()
+        )
+        ch_validation_krona = KRONA_VALIDATION.out.html // [ vdir, html ]
+
         // optional: remove host reads before alignment
         if (params.deplete_host) {
             // join reads + kraken output + report by meta key into ONE channel
             // (separate queue inputs would be consumed positionally, not by key)
-            ch_deplete_in = ch_trimmed.map { meta, reads, ref -> [ meta, reads ] }
-                                      .join( KRAKEN2.out.output )
-                                      .join( KRAKEN2.out.report )
+            ch_deplete_in = ch_trimmed
+                                      .filter { meta, reads, ref -> !meta.is_control }
+                                      .map { meta, reads, ref -> [ meta, reads ] }
+                                      .join( KRAKEN2.out.output.filter { meta, f -> !meta.is_control } )
+                                      .join( KRAKEN2.out.report.filter { meta, f -> !meta.is_control } )
             HOST_DEPLETE ( ch_deplete_in )
             ch_dehost = HOST_DEPLETE.out.reads
             // re-attach the per-sample reference to the dehosted reads
-            ch_align_in = HOST_DEPLETE.out.reads.join( ch_trimmed.map { meta, reads, ref -> [ meta, ref ] } )
+            ch_align_in = HOST_DEPLETE.out.reads.join( ch_trimmed.filter { meta, reads, ref -> !meta.is_control }
+                                                               .map { meta, reads, ref -> [ meta, ref ] } )
                                                 .map { meta, reads, ref -> [ meta, reads, ref ] }
         }
     }
@@ -474,6 +588,7 @@ workflow {
         ch_dash_var   = ANNOTATE_AA.out.tsv.map  { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_mixed = ch_mixed.map             { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_reads = ch_read_stats.map        { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_dash_validation = SAMPLE_VALIDATION.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
 
         ch_dash_in = ch_dash_qc
             .join( ch_dash_var,   remainder: true )
@@ -483,8 +598,10 @@ workflow {
             .join( ch_nextclade,  remainder: true )
             .join( ch_blast,      remainder: true )
             .join( ch_dash_reads, remainder: true )
+            .join( ch_dash_validation, remainder: true )
+            .join( ch_validation_krona, remainder: true )
             .map { row ->
-                // row = [ vdir, qc[], var[], mixed[], taxonomy, krona, nextclade, blast, reads[] ]
+                // row = [ vdir, qc[], var[], mixed[], taxonomy, krona, nextclade, blast, reads[], validation[], validation_krona ]
                 def vdir = row[0]
                 def vals = row[1..-1].collect { v -> v == null ? [] : v }
                 [ vdir ] + vals
