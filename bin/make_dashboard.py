@@ -837,7 +837,7 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
         <input id="flt" type="text" placeholder="filter by sample..." autocomplete="off">
         <span class="muted">Click a column header to sort.</span>
         <button type="button" class="download-btn" data-table="tbl-samples"
-                data-filename="samples_table.csv">Download CSV</button>
+                data-filename="samples_table.xls">Download Excel</button>
       </div>
       <div class="table-scroll">
       <table id="tbl-samples">
@@ -1115,7 +1115,7 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
           <div class="section-head">
             <h3>Nextclade — lineages / genotypes</h3>
             <button type="button" class="download-btn" data-table="tbl-typing"
-                    data-filename="lineages_genotypes_table.csv">Download CSV</button>
+                    data-filename="lineages_genotypes_table.xls">Download Excel</button>
           </div>
           <p class="muted">Typing from the assembled consensus (Nextclade v3).
           The QC column and counts of private mutations, frameshifts, and premature stops
@@ -1307,30 +1307,34 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
         r.style.display = r.cells[0].innerText.toLowerCase().indexOf(q)>=0 ? '' : 'none';
       });
     }); }
-    function csvCell(txt){
+    function excelEsc(txt){
       txt = (txt || '').replace(/\s+/g,' ').trim();
-      return '"' + txt.replace(/"/g,'""') + '"';
+      return txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
-    function downloadTable(tableId, filename){
+    function tableRowHtml(row, tag){
+      return '<tr>' + Array.prototype.map.call(row.cells,function(c){
+        return '<' + tag + '>' + excelEsc(c.innerText) + '</' + tag + '>';
+      }).join('') + '</tr>';
+    }
+    function downloadTableExcel(tableId, filename){
       var table=document.getElementById(tableId);
       if(!table){ return; }
       var rows=[];
       var head=table.tHead ? table.tHead.rows[0] : null;
-      if(head){
-        rows.push(Array.prototype.map.call(head.cells,function(c){return csvCell(c.innerText);}).join(','));
-      }
+      if(head){ rows.push(tableRowHtml(head, 'th')); }
       var body=table.tBodies[0];
       if(body){
         Array.prototype.forEach.call(body.rows,function(r){
           if(r.style.display==='none'){ return; }
-          rows.push(Array.prototype.map.call(r.cells,function(c){return csvCell(c.innerText);}).join(','));
+          rows.push(tableRowHtml(r, 'td'));
         });
       }
-      var blob=new Blob(["\ufeff" + rows.join('\n') + '\n'], {type:'text/csv;charset=utf-8'});
+      var workbook='<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><table border="1">' + rows.join('') + '</table></body></html>';
+      var blob=new Blob([workbook], {type:'application/vnd.ms-excel;charset=utf-8'});
       var url=URL.createObjectURL(blob);
       var a=document.createElement('a');
       a.href=url;
-      a.download=filename || (tableId + '.csv');
+      a.download=filename || (tableId + '.xls');
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1338,7 +1342,7 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
     }
     document.querySelectorAll('.download-btn').forEach(function(b){
       b.addEventListener('click',function(){
-        downloadTable(b.dataset.table, b.dataset.filename);
+        downloadTableExcel(b.dataset.table, b.dataset.filename);
       });
     });
     """
