@@ -836,6 +836,8 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
       <div class="toolbar">
         <input id="flt" type="text" placeholder="filter by sample..." autocomplete="off">
         <span class="muted">Click a column header to sort.</span>
+        <button type="button" class="download-btn" data-table="tbl-samples"
+                data-filename="samples_table.csv">Download CSV</button>
       </div>
       <div class="table-scroll">
       <table id="tbl-samples">
@@ -1110,7 +1112,11 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
             seg_note = (" For Oropouche, lineages for each segment (L/M/S) are "
                         "shown in the same row.") if nc_segmented else ""
             nc_note = f"""
-          <h3>Nextclade — lineages / genotypes</h3>
+          <div class="section-head">
+            <h3>Nextclade — lineages / genotypes</h3>
+            <button type="button" class="download-btn" data-table="tbl-typing"
+                    data-filename="lineages_genotypes_table.csv">Download CSV</button>
+          </div>
           <p class="muted">Typing from the assembled consensus (Nextclade v3).
           The QC column and counts of private mutations, frameshifts, and premature stops
           are Nextclade controls that complement assembly QC.{seg_note}
@@ -1250,6 +1256,12 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
            border-radius:5px; padding:1px 6px; margin:1px 2px; white-space:nowrap; }
     .toolbar { display:flex; gap:14px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
     #flt { padding:7px 11px; border:1px solid var(--line); border-radius:7px; font-size:13.5px; min-width:240px; }
+    .section-head { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:10px; }
+    .section-head h3 { margin-bottom:0; }
+    .download-btn { margin-left:auto; border:1px solid #b7c6d8; border-radius:7px; background:#fff;
+                    color:var(--ink); cursor:pointer; font-size:12.5px; font-weight:700;
+                    padding:7px 11px; white-space:nowrap; }
+    .download-btn:hover { background:#edf2f7; }
     .notice { border:1px solid var(--line); border-left-width:6px; border-radius:8px; padding:12px 14px;
               margin:12px 0; background:#fff; }
     .notice.ok { border-left-color:#2f855a; background:#f0fff4; }
@@ -1295,6 +1307,40 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
         r.style.display = r.cells[0].innerText.toLowerCase().indexOf(q)>=0 ? '' : 'none';
       });
     }); }
+    function csvCell(txt){
+      txt = (txt || '').replace(/\s+/g,' ').trim();
+      return '"' + txt.replace(/"/g,'""') + '"';
+    }
+    function downloadTable(tableId, filename){
+      var table=document.getElementById(tableId);
+      if(!table){ return; }
+      var rows=[];
+      var head=table.tHead ? table.tHead.rows[0] : null;
+      if(head){
+        rows.push(Array.prototype.map.call(head.cells,function(c){return csvCell(c.innerText);}).join(','));
+      }
+      var body=table.tBodies[0];
+      if(body){
+        Array.prototype.forEach.call(body.rows,function(r){
+          if(r.style.display==='none'){ return; }
+          rows.push(Array.prototype.map.call(r.cells,function(c){return csvCell(c.innerText);}).join(','));
+        });
+      }
+      var blob=new Blob(["\ufeff" + rows.join('\n') + '\n'], {type:'text/csv;charset=utf-8'});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url;
+      a.download=filename || (tableId + '.csv');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    document.querySelectorAll('.download-btn').forEach(function(b){
+      b.addEventListener('click',function(){
+        downloadTable(b.dataset.table, b.dataset.filename);
+      });
+    });
     """
 
     doc = f"""<!DOCTYPE html>
