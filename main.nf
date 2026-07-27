@@ -148,6 +148,7 @@ def helpMessage() {
       --skip_combine   Skip run-level combined multi-FASTA(s)   [default: ${params.skip_combine}]
       --combine_min_status  Lowest QC status kept in combined FASTA: PASS|WARN|FAIL [default: ${params.combine_min_status}]
       --run_name       Label shown in the dashboard header      [default: Nextflow run name]
+      --metadata       Optional CSV/TSV metadata table; writes metadata_<virus>.xlsx
       --dash_pass      Min completeness for PASS badge          [default: ${params.dash_pass}]
       --dash_warn      Min completeness for WARN badge          [default: ${params.dash_warn}]
       --aligner        'bwa' or 'minimap2'                      [default: ${params.aligner}]
@@ -269,6 +270,7 @@ include { BLASTN_ID         } from './modules/local/blast_id'
 include { BLAST_SUMMARY     } from './modules/local/blast_summary'
 include { MULTIQC           } from './modules/local/multiqc'
 include { DASHBOARD         } from './modules/local/dashboard'
+include { METADATA_XLSX    } from './modules/local/metadata_xlsx'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -574,6 +576,25 @@ workflow {
         )
     }
 
+    //
+    // Optional Excel metadata workbook, one file per virus. The external table
+    // supplies sample metadata; pipeline QC/read/typing tables fill assembly
+    // metrics. Only PASS/WARN samples are included.
+    //
+    if (params.metadata) {
+        ch_meta_qc    = CONSENSUS_QC.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_meta_reads = ch_read_stats.map        { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_meta_in = ch_meta_qc
+            .join(ch_meta_reads, remainder: true)
+            .join(ch_nextclade, remainder: true)
+            .map { vdir, qc_files, read_files, nc_file ->
+                [ vdir, qc_files ?: [], read_files ?: [], nc_file ?: [] ]
+            }
+        METADATA_XLSX (
+            ch_meta_in,
+            file(params.metadata, checkIfExists: true)
+        )
+    }
     //
     // Self-contained HTML surveillance dashboard (PASS/WARN/FAIL per sample,
     // per-segment breakdown, variant counts, inline charts)
