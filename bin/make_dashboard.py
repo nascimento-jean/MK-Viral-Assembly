@@ -36,6 +36,148 @@ import sys
 from collections import Counter, defaultdict
 
 
+# Inline browser exporter; kept here to preserve the single-file dashboard.
+TABLE_XLSX_JS = r"""
+// Real, offline XLSX export: SpreadsheetML parts in an uncompressed ZIP package.
+// Keep this inline so copied dashboards work without a server, CDN or library.
+function xlsxXml(value) {
+  return String(value).replace(/_x[0-9a-f]{4}_/gi, function(s){ return '_x005F_' + s.slice(1); })
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+function xlsxColumn(index) {
+  var name = '';
+  for (index++; index; index = Math.floor((index - 1) / 26)) {
+    name = String.fromCharCode(65 + (index - 1) % 26) + name;
+  }
+  return name;
+}
+function xlsxCell(cell, reference, header) {
+  var text = (cell.innerText || '').replace(/\s+/g, ' ').trim();
+  // Only columns explicitly marked numeric may become numbers. Sample IDs,
+  // genotypes and formula-looking text must remain literal strings.
+  if (!header && cell.classList.contains('num')) {
+    var compact = text.replace(/[\s\u2009\u00a0]/g, '');
+    var match = /^(-?\d+(?:\.\d+)?)([%x]?)$/.exec(compact);
+    if (match && Number.isFinite(Number(match[1]))) {
+      var value = Number(match[1]), style = 0;
+      if (match[2] === '%') { value /= 100; style = 2; }
+      else if (match[2] === 'x') { style = 3; }
+      return '<c r="' + reference + '" s="' + style + '"><v>' + value + '</v></c>';
+    }
+  }
+  return '<c r="' + reference + '" t="inlineStr" s="' + (header ? 1 : 0) +
+    '"><is><t xml:space="preserve">' + xlsxXml(text) + '</t></is></c>';
+}
+function xlsxZip(files) {
+  var encoder = new TextEncoder(), local = [], central = [], offset = 0, centralSize = 0;
+  var crcTable = new Uint32Array(256);
+  for (var n = 0; n < 256; n++) {
+    var crc = n;
+    for (var bit = 0; bit < 8; bit++) { crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); }
+    crcTable[n] = crc >>> 0;
+  }
+  files.forEach(function(file) {
+    var name = encoder.encode(file[0]), data = encoder.encode(file[1]), crc = 0xffffffff;
+    for (var i = 0; i < data.length; i++) { crc = (crc >>> 8) ^ crcTable[(crc ^ data[i]) & 255]; }
+    crc = (crc ^ 0xffffffff) >>> 0;
+    var lh = new Uint8Array(30), lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true); lv.setUint16(12, 33, true);
+    lv.setUint32(14, crc, true); lv.setUint32(18, data.length, true);
+    lv.setUint32(22, data.length, true); lv.setUint16(26, name.length, true);
+    local.push(lh, name, data);
+    var ch = new Uint8Array(46), cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true); cv.setUint16(14, 33, true);
+    cv.setUint32(16, crc, true); cv.setUint32(20, data.length, true);
+    cv.setUint32(24, data.length, true); cv.setUint16(28, name.length, true);
+    cv.setUint32(42, offset, true);
+    central.push(ch, name);
+    offset += lh.length + name.length + data.length;
+    centralSize += ch.length + name.length;
+  });
+  if (offset + centralSize > 0xffffffff) { throw new Error('Excel export exceeds the ZIP size limit.'); }
+  var end = new Uint8Array(22), ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true); ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+  return new Blob(local.concat(central, [end]),
+    {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function tableXlsx(table) {
+  var rows = [], head = table.tHead ? table.tHead.rows[0] : null;
+  if (head) { rows.push({row: head, header: true}); }
+  if (table.tBodies[0]) {
+    Array.prototype.forEach.call(table.tBodies[0].rows, function(row) {
+      if (row.style.display !== 'none') { rows.push({row: row, header: false}); }
+    });
+  }
+  var width = rows.reduce(function(max, item){ return Math.max(max, item.row.cells.length); }, 1);
+  if (rows.length > 1048576 || width > 16384) { throw new Error('Table exceeds Excel worksheet limits.'); }
+  var dimension = 'A1:' + xlsxColumn(width - 1) + Math.max(1, rows.length);
+  var sheetRows = rows.map(function(item, ri) {
+    return '<row r="' + (ri + 1) + '">' + Array.prototype.map.call(item.row.cells, function(cell, ci) {
+      return xlsxCell(cell, xlsxColumn(ci) + (ri + 1), item.header);
+    }).join('') + '</row>';
+  }).join('');
+  var xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  var ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  var rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  var pkg = 'http://schemas.openxmlformats.org/package/2006/relationships';
+  return xlsxZip([
+    ['[Content_Types].xml', xml + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ['_rels/.rels', xml + '<Relationships xmlns="' + pkg + '"><Relationship Id="rId1" Type="' + rel +
+      '/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ['xl/workbook.xml', xml + '<workbook xmlns="' + ns + '" xmlns:r="' + rel +
+      '"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+    ['xl/_rels/workbook.xml.rels', xml + '<Relationships xmlns="' + pkg +
+      '"><Relationship Id="rId1" Type="' + rel + '/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" Type="' + rel + '/styles" Target="styles.xml"/></Relationships>'],
+    ['xl/styles.xml', xml + '<styleSheet xmlns="' + ns + '">' +
+      '<numFmts count="2"><numFmt numFmtId="164" formatCode="0.0%"/><numFmt numFmtId="165" formatCode="0&quot;x&quot;"/></numFmts>' +
+      '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment wrapText="1"/></xf>' +
+      '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+      '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>' +
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'],
+    ['xl/worksheets/sheet1.xml', xml + '<worksheet xmlns="' + ns + '"><dimension ref="' + dimension + '"/>' +
+      '<sheetViews><sheetView workbookViewId="0">' + (head ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' : '') +
+      '</sheetView></sheetViews><cols><col min="1" max="' + width + '" width="22" customWidth="1"/></cols>' +
+      '<sheetData>' + sheetRows + '</sheetData>' + (head ? '<autoFilter ref="' + dimension + '"/>' : '') + '</worksheet>']
+  ]);
+}
+function downloadTableExcel(tableId, filename) {
+  var table = document.getElementById(tableId);
+  if (!table) { return; }
+  var url = URL.createObjectURL(tableXlsx(table));
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = (filename || tableId).replace(/\.xlsx?$/i, '') + '.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Leave time for the browser to consume the download before freeing its URL.
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
+document.querySelectorAll('.download-btn').forEach(function(button) {
+  button.addEventListener('click', function() {
+    downloadTableExcel(button.dataset.table, button.dataset.filename);
+  });
+});
+"""
+
+
 # ----------------------------------------------------------------------------- parsing
 def read_tsv(path):
     with open(path) as fh:
@@ -837,7 +979,7 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
         <input id="flt" type="text" placeholder="filter by sample..." autocomplete="off">
         <span class="muted">Click a column header to sort.</span>
         <button type="button" class="download-btn" data-table="tbl-samples"
-                data-filename="samples_table.xls">Download Excel</button>
+                data-filename="samples_table.xlsx">Download Excel</button>
       </div>
       <div class="table-scroll">
       <table id="tbl-samples">
@@ -1115,7 +1257,7 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
           <div class="section-head">
             <h3>Nextclade — lineages / genotypes</h3>
             <button type="button" class="download-btn" data-table="tbl-typing"
-                    data-filename="lineages_genotypes_table.xls">Download Excel</button>
+                    data-filename="lineages_genotypes_table.xlsx">Download Excel</button>
           </div>
           <p class="muted">Typing from the assembled consensus (Nextclade v3).
           The QC column and counts of private mutations, frameshifts, and premature stops
@@ -1307,45 +1449,7 @@ def build_html(run_name, samples, variants, breadth_key, pass_t, warn_t, min_cov
         r.style.display = r.cells[0].innerText.toLowerCase().indexOf(q)>=0 ? '' : 'none';
       });
     }); }
-    function excelEsc(txt){
-      txt = (txt || '').replace(/\s+/g,' ').trim();
-      return txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    }
-    function tableRowHtml(row, tag){
-      return '<tr>' + Array.prototype.map.call(row.cells,function(c){
-        return '<' + tag + '>' + excelEsc(c.innerText) + '</' + tag + '>';
-      }).join('') + '</tr>';
-    }
-    function downloadTableExcel(tableId, filename){
-      var table=document.getElementById(tableId);
-      if(!table){ return; }
-      var rows=[];
-      var head=table.tHead ? table.tHead.rows[0] : null;
-      if(head){ rows.push(tableRowHtml(head, 'th')); }
-      var body=table.tBodies[0];
-      if(body){
-        Array.prototype.forEach.call(body.rows,function(r){
-          if(r.style.display==='none'){ return; }
-          rows.push(tableRowHtml(r, 'td'));
-        });
-      }
-      var workbook='<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><table border="1">' + rows.join('') + '</table></body></html>';
-      var blob=new Blob([workbook], {type:'application/vnd.ms-excel;charset=utf-8'});
-      var url=URL.createObjectURL(blob);
-      var a=document.createElement('a');
-      a.href=url;
-      a.download=filename || (tableId + '.xls');
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-    document.querySelectorAll('.download-btn').forEach(function(b){
-      b.addEventListener('click',function(){
-        downloadTableExcel(b.dataset.table, b.dataset.filename);
-      });
-    });
-    """
+    """ + TABLE_XLSX_JS
 
     doc = f"""<!DOCTYPE html>
 <html lang="pt-br"><head><meta charset="utf-8">
