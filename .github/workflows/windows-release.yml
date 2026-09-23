@@ -1,0 +1,75 @@
+name: Validate and publish Windows installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: webtool/package-lock.json
+      - name: Install WebTool dependencies
+        working-directory: webtool
+        run: npm ci --no-audit --no-fund
+      - name: Validate WebTool
+        working-directory: webtool
+        run: |
+          npm run lint
+          npm run build
+          node --test tests/rendered-html.test.mjs
+          PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Validate bootstrap without downloads
+        run: MKVA_BOOTSTRAP_TEST=1 bash windows-launcher/bootstrap-wsl.sh
+      - name: Validate pipeline Python tools
+        run: python3 -m compileall -q bin webtool/local_api.py
+
+  windows-installer:
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build self-contained installer
+        shell: pwsh
+        run: ./windows-launcher/build.ps1
+      - name: Write checksum
+        shell: pwsh
+        run: |
+          $file = 'windows-launcher/output/MK-Viral-Assembly-Setup.exe'
+          $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  MK-Viral-Assembly-Setup.exe" | Set-Content 'windows-launcher/output/MK-Viral-Assembly-Setup.exe.sha256' -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MK-Viral-Assembly-Windows
+          path: |
+            windows-launcher/output/MK-Viral-Assembly-Setup.exe
+            windows-launcher/output/MK-Viral-Assembly-Setup.exe.sha256
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:GITHUB_REF_NAME 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME windows-launcher/output/MK-Viral-Assembly-Setup.exe windows-launcher/output/MK-Viral-Assembly-Setup.exe.sha256 --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME windows-launcher/output/MK-Viral-Assembly-Setup.exe windows-launcher/output/MK-Viral-Assembly-Setup.exe.sha256 --generate-notes --title "MK-Viral-Assembly $env:GITHUB_REF_NAME"
+          }

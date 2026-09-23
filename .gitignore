@@ -12,3 +12,11 @@ samplesheet_*.csv
 # Downloaded database and dataset caches
 assets/blast_refseq_viral/
 assets/nextclade_datasets/
+
+# Windows launcher build artifacts
+windows-launcher/launcher/bin/
+windows-launcher/launcher/obj/
+windows-launcher/output/
+
+# Local installer diagnostics
+*.diagnostic.json

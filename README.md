@@ -35,6 +35,19 @@ of the example commands to your own FASTQ files.
 
 ---
 
+## Windows WebTool — recommended for new users
+
+Windows users can install the graphical WebTool without preparing Nextflow or a development environment manually:
+
+1. Open the [latest release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
+2. Download and run `MK-Viral-Assembly-Setup.exe`.
+3. Follow the first-launch preparation shown by the application.
+4. Select FASTQs, references and an output folder in the graphical interface.
+
+The installer contains a self-contained Windows launcher. On first use it detects or installs WSL 2 and Ubuntu, downloads the matching MK-Viral-Assembly release, and creates isolated Nextflow and WebTool environments. A Windows restart may be required when WSL is installed for the first time.
+
+FASTQs and results remain local. See the [complete Windows installation guide](docs/WEBTOOL_INSTALLATION.md) for requirements, storage planning and troubleshooting.
+
 ## What it does
 
 ```
