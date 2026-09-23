@@ -20,3 +20,6 @@ windows-launcher/output/
 
 # Local installer diagnostics
 *.diagnostic.json
+
+# Ubuntu package build output
+linux-launcher/output/

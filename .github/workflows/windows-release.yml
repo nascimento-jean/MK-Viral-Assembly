@@ -1,4 +1,4 @@
-name: Validate and publish Windows installer
+name: Validate and publish desktop installers
 
 on:
   push:
@@ -29,8 +29,10 @@ jobs:
           npm run build
           node --test tests/rendered-html.test.mjs
           PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'
-      - name: Validate bootstrap without downloads
+      - name: Validate Windows bootstrap without downloads
         run: MKVA_BOOTSTRAP_TEST=1 bash windows-launcher/bootstrap-wsl.sh
+      - name: Validate Ubuntu launcher without downloads
+        run: bash linux-launcher/tests/test-linux-launcher.sh
       - name: Validate pipeline Python tools
         run: python3 -m compileall -q bin webtool/local_api.py
 
@@ -61,15 +63,56 @@ jobs:
             windows-launcher/output/MK-Viral-Assembly-Setup.exe
             windows-launcher/output/MK-Viral-Assembly-Setup.exe.sha256
 
+  ubuntu-package:
+    needs: validate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Ubuntu launcher
+        run: bash linux-launcher/tests/test-linux-launcher.sh
+      - name: Build Ubuntu package
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            export MKVA_VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          ./linux-launcher/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MK-Viral-Assembly-Ubuntu
+          path: |
+            linux-launcher/output/*.deb
+            linux-launcher/output/*.sha256
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - windows-installer
+      - ubuntu-package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: MK-Viral-Assembly-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify release assets
+        run: |
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f | sort)
+          if [[ "${#assets[@]}" -ne 4 ]]; then
+            printf 'Expected four release files, found %s.\n' "${#assets[@]}" >&2
+            printf '%s\n' "${assets[@]}" >&2
+            exit 1
+          fi
+          test -f release-assets/MK-Viral-Assembly-Setup.exe
+          test -f release-assets/MK-Viral-Assembly-Setup.exe.sha256
+          test -f "release-assets/MK-Viral-Assembly-WebTool_${GITHUB_REF_NAME#v}_amd64.deb"
+          test -f "release-assets/MK-Viral-Assembly-WebTool_${GITHUB_REF_NAME#v}_amd64.deb.sha256"
       - name: Publish GitHub Release assets
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view $env:GITHUB_REF_NAME 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:GITHUB_REF_NAME windows-launcher/output/MK-Viral-Assembly-Setup.exe windows-launcher/output/MK-Viral-Assembly-Setup.exe.sha256 --clobber
-          } else {
-            gh release create $env:GITHUB_REF_NAME windows-launcher/output/MK-Viral-Assembly-Setup.exe windows-launcher/output/MK-Viral-Assembly-Setup.exe.sha256 --generate-notes --title "MK-Viral-Assembly $env:GITHUB_REF_NAME"
-          }
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release-assets/* --generate-notes --title "MK-Viral-Assembly $GITHUB_REF_NAME"
+          fi

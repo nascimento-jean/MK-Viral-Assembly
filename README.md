@@ -35,18 +35,24 @@ of the example commands to your own FASTQ files.
 
 ---
 
-## Windows WebTool — recommended for new users
+## Graphical WebTool installers — recommended for new users
 
-Windows users can install the graphical WebTool without preparing Nextflow or a development environment manually:
+The graphical WebTool lets Windows and Ubuntu users configure and run MK-Viral-Assembly without preparing Nextflow or a development environment manually.
+
+### Windows 10/11
 
 1. Open the [latest release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
 2. Download and run `MK-Viral-Assembly-Setup.exe`.
-3. Follow the first-launch preparation shown by the application.
-4. Select FASTQs, references and an output folder in the graphical interface.
+3. Follow the first-launch preparation. A Windows restart may be required when WSL 2 is enabled for the first time.
 
-The installer contains a self-contained Windows launcher. On first use it detects or installs WSL 2 and Ubuntu, downloads the matching MK-Viral-Assembly release, and creates isolated Nextflow and WebTool environments. A Windows restart may be required when WSL is installed for the first time.
+### Ubuntu 22.04/24.04
 
-FASTQs and results remain local. See the [complete Windows installation guide](docs/WEBTOOL_INSTALLATION.md) for requirements, storage planning and troubleshooting.
+1. Open the [latest release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
+2. Download `MK-Viral-Assembly-WebTool_1.2.0_amd64.deb`.
+3. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.0_amd64.deb`.
+4. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation.
+
+Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md) or the [Portuguese guide](docs/INSTALACAO_WEBTOOL_PT_BR.md) for requirements, checksum verification, database behavior and troubleshooting.
 
 ## What it does
 

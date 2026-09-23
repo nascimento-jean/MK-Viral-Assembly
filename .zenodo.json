@@ -1,8 +1,8 @@
 {
   "title": "MK-Viral-Assembly: a Nextflow pipeline for viral consensus genome assembly",
   "upload_type": "software",
-  "version": "1.1.0",
-  "publication_date": "2026-09-22",
+  "version": "1.2.0",
+  "publication_date": "2026-09-23",
   "description": "MK-Viral-Assembly is a reproducible Nextflow pipeline for reference-based viral consensus genome assembly from paired-end Illumina short reads. It performs read quality control, trimming, reference mapping, variant calling, consensus generation, consensus QC, optional taxonomic screening, optional host-read depletion, optional Nextclade lineage/genotype assignment, optional BLAST species confirmation, MultiQC reporting, and per-virus static HTML dashboard generation.",
   "creators": [
     {

@@ -1,5 +1,6 @@
 import csv
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -188,6 +189,40 @@ class PathConversionTests(unittest.TestCase):
         self.assertNotIn("$owner.TopMost", source)
         self.assertEqual(local_api.PICKER_CONFIG["samplesheet_output"]["mode"], "save")
         self.assertIn("SaveFileDialog", source)
+
+    def test_linux_folder_picker_uses_zenity(self):
+        completed = subprocess.CompletedProcess([], 0, stdout="/home/researcher/reads\n", stderr="")
+        with patch.object(local_api, "WINDOWS_POWERSHELL", Path("/missing/powershell.exe")), \
+             patch.object(local_api, "LINUX_ZENITY", "/usr/bin/zenity"), \
+             patch.object(local_api.subprocess, "run", return_value=completed) as run:
+            result = local_api.pick_local_path({"picker": "fastq_dir", "current": "/home/researcher"})
+
+        self.assertEqual(result["path"], "/home/researcher/reads")
+        command = run.call_args.args[0]
+        self.assertIn("--file-selection", command)
+        self.assertIn("--directory", command)
+        self.assertIn("--title=Selecione a pasta com os FASTQ.GZ", command)
+
+    def test_linux_save_picker_preserves_cancellation(self):
+        completed = subprocess.CompletedProcess([], 1, stdout="", stderr="")
+        with patch.object(local_api, "WINDOWS_POWERSHELL", Path("/missing/powershell.exe")), \
+             patch.object(local_api, "LINUX_ZENITY", "/usr/bin/zenity"), \
+             patch.object(local_api.subprocess, "run", return_value=completed):
+            result = local_api.pick_local_path({"picker": "samplesheet_output", "current": ""})
+
+        self.assertEqual(result, {"cancelled": True, "path": ""})
+
+    def test_linux_file_picker_translates_filters(self):
+        completed = subprocess.CompletedProcess([], 0, stdout="/home/researcher/ref.fasta\n", stderr="")
+        with patch.object(local_api, "WINDOWS_POWERSHELL", Path("/missing/powershell.exe")), \
+             patch.object(local_api, "LINUX_ZENITY", "/usr/bin/zenity"), \
+             patch.object(local_api.subprocess, "run", return_value=completed) as run:
+            result = local_api.pick_local_path({"picker": "reference", "current": ""})
+
+        self.assertEqual(result["linux_path"], "/home/researcher/ref.fasta")
+        command = run.call_args.args[0]
+        self.assertTrue(any(item.startswith("--file-filter=") for item in command))
+        self.assertIn("*.fasta", " ".join(command))
 
 class ResultDiscoveryTests(unittest.TestCase):
     def test_discovers_only_real_artifacts_and_sample_metrics(self):

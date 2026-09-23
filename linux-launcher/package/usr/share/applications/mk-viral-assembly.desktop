@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=MK-Viral-Assembly
+Comment=Configure and run local viral genome assembly analyses
+Exec=/usr/bin/mk-viral-assembly
+Icon=mk-viral-assembly
+Terminal=false
+Categories=Science;Education;
+Keywords=virus;genomics;bioinformatics;Nextflow;assembly;
+StartupNotify=true

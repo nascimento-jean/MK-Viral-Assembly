@@ -94,6 +94,7 @@ PICKER_CONFIG = {
     "kraken_db": {"mode": "folder", "title": "Selecione o diretório do banco Kraken2"},
 }
 WINDOWS_POWERSHELL = Path("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
+LINUX_ZENITY = shutil.which("zenity")
 
 
 def windows_to_wsl_path(value: str) -> str:
@@ -132,13 +133,65 @@ def _powershell_value(value: str) -> str:
     return f"[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))"
 
 
+def _zenity_filters(file_filter: str) -> list[str]:
+    """Convert the Windows Forms filter format into Zenity arguments."""
+    parts = file_filter.split("|")
+    filters = []
+    for label, patterns in zip(parts[0::2], parts[1::2]):
+        normalized = " ".join(patterns.replace(";", " ").split())
+        if label and normalized:
+            filters.append(f"--file-filter={label} | {normalized}")
+    return filters
+
+
+def _pick_linux_path(config: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    if not LINUX_ZENITY:
+        raise ValueError("O seletor nativo do Ubuntu não está disponível. Instale o pacote zenity.")
+
+    mode = config["mode"]
+    title = config["title"]
+    default_name = config.get("default_name", "")
+    current = clean_text(payload.get("current"), "Caminho atual")
+    expanded = Path(os.path.expandvars(os.path.expanduser(current))) if current else None
+    command = [LINUX_ZENITY, "--file-selection", f"--title={title}"]
+
+    if mode == "folder":
+        command.append("--directory")
+    elif mode == "save":
+        command.extend(("--save", "--confirm-overwrite"))
+    else:
+        command.extend(_zenity_filters(config.get("filter", "Todos os arquivos (*.*)|*.*")))
+
+    if expanded:
+        if mode == "save" and expanded.is_dir():
+            initial = expanded / default_name
+        elif mode == "folder" and expanded.is_file():
+            initial = expanded.parent
+        else:
+            initial = expanded
+        initial_text = str(initial)
+        if mode == "folder" and not initial_text.endswith(os.sep):
+            initial_text += os.sep
+        command.append(f"--filename={initial_text}")
+    elif mode == "save" and default_name:
+        command.append(f"--filename={Path.home() / default_name}")
+
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=900, check=False)
+    selected = completed.stdout.strip()
+    if completed.returncode == 1 or not selected:
+        return {"cancelled": True, "path": ""}
+    if completed.returncode != 0:
+        raise ValueError("Não foi possível abrir o seletor nativo do Ubuntu")
+    return {"cancelled": False, "path": selected, "linux_path": selected}
+
+
 def pick_local_path(payload: dict[str, Any]) -> dict[str, Any]:
     picker = clean_text(payload.get("picker"), "Seletor", required=True)
     config = PICKER_CONFIG.get(picker)
     if not config:
         raise ValueError("Seletor de caminho não permitido")
     if not WINDOWS_POWERSHELL.exists():
-        raise ValueError("O seletor nativo do Windows não está disponível")
+        return _pick_linux_path(config, payload)
     mode = config["mode"]
     title = config["title"]
     file_filter = config.get("filter", "Todos os arquivos (*.*)|*.*")

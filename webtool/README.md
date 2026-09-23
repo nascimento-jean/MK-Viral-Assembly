@@ -2,6 +2,8 @@
 
 Interface web local para configurar, iniciar e acompanhar o pipeline MK-Viral-Assembly sem precisar montar manualmente o comando Nextflow.
 
+Para instalar como aplicativo, use o [guia completo para Windows e Ubuntu](../docs/WEBTOOL_INSTALLATION.md) ou o [tutorial em português](../docs/INSTALACAO_WEBTOOL_PT_BR.md). Os instaladores publicados em cada [release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest) criam automaticamente os ambientes isolados necessários.
+
 ## O que esta versão inicial oferece
 
 - seleção entre `Single Analysis` (pasta FASTQ + referência global) e `Mixed Virus Analysis` (samplesheet CSV existente ou criada pela própria WebTool);
@@ -20,11 +22,11 @@ Interface web local para configurar, iniciar e acompanhar o pipeline MK-Viral-As
 - **Single Analysis:** informe uma pasta com FASTQs pareados e uma referência FASTA global. Se o Nextclade estiver ativado, o dataset é obrigatório e pode ser informado por um alias do pipeline (por exemplo, `denv4`) ou pelo caminho completo do catálogo. Opcionalmente, informe um Primer BED e uma anotação GFF3. A webtool envia `--input`, `--reference`, `--virus`, `--nextclade_dataset` e, quando preenchidos, `--primer_bed` e `--gff` ao pipeline.
 - **Mixed Virus Analysis:** use um samplesheet CSV existente ou crie-o na própria WebTool. Para criar, selecione a pasta-pai que contém as subpastas nomeadas conforme os vírus do catálogo e escolha onde salvar o CSV. O serviço executa `bin/make_samplesheet.py`, usa automaticamente `assets/virus_catalog.tsv` e preenche o campo de entrada com o arquivo gerado. Vírus, referência, GFF3, Primer BED e dataset Nextclade são definidos individualmente pelas colunas `virus`, `reference`, `gff`, `bed_file` e `nextclade_dataset` de cada amostra.
 
-Os arquivos FASTQ não são enviados pelo navegador. A webtool recebe apenas caminhos locais e o serviço executa o Nextflow dentro do repositório no WSL. Se já houver uma análise em execução, novas submissões ficam em uma fila FIFO persistente e começam automaticamente, uma por vez, quando a anterior termina, falha ou é cancelada.
+Os arquivos FASTQ não são enviados pelo navegador. A webtool recebe apenas caminhos locais e o serviço executa o Nextflow dentro da instalação local no Windows/WSL ou Ubuntu. Se já houver uma análise em execução, novas submissões ficam em uma fila FIFO persistente e começam automaticamente, uma por vez, quando a anterior termina, falha ou é cancelada.
 
 ## Iniciar
 
-No WSL:
+Em uma instalação manual no Linux/WSL:
 
 ```bash
 cd ~/MK-Viral-Assembly/webtool
@@ -35,7 +37,7 @@ Depois, abra `http://localhost:3000` no navegador. Use `Ctrl+C` no terminal para
 
 ## Instalação do ambiente da interface
 
-O instalador Windows cria automaticamente o ambiente `mkva-webtool`. Em uma instalação manual, recrie-o com:
+Os instaladores Windows e Ubuntu criam automaticamente o ambiente `mkva-webtool`. Em uma instalação manual, recrie-o com:
 
 ```bash
 conda create -n mkva-webtool -c conda-forge nodejs=22
@@ -54,5 +56,5 @@ MKVA_NEXTFLOW=/caminho/para/nextflow ./start-local.sh
 - execução por lista de argumentos, sem interpolação em shell;
 - validação de perfis, números e existência dos arquivos de entrada;
 - histórico e logs locais em `.local-data/` (não versionados);
-- a máquina e o WSL precisam permanecer ligados durante a análise;
+- a máquina e o serviço local precisam permanecer ligados durante a análise;
 - não há autenticação multiusuário nem envio para nuvem nesta versão local.

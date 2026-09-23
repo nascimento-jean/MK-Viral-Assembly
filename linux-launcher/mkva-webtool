@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PACKAGE_DIR="${MKVA_PACKAGE_DIR:-/opt/mk-viral-assembly}"
+BOOTSTRAP="$PACKAGE_DIR/bootstrap-linux.sh"
+APP_DATA_DIR="${MKVA_APP_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mk-viral-assembly}"
+SOURCE_DIR="$APP_DATA_DIR/source"
+NEXTFLOW_ENV="$APP_DATA_DIR/envs/nextflow"
+WEBTOOL_ENV="$APP_DATA_DIR/envs/mkva-webtool"
+STATE_DIR="${MKVA_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/mk-viral-assembly}"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-$STATE_DIR}"
+LOG_FILE="$STATE_DIR/launcher.log"
+SERVICE_LOG="$STATE_DIR/webtool-service.log"
+PID_FILE="$RUNTIME_DIR/mkva-webtool.pid"
+RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.0}"
+
+mkdir -p "$STATE_DIR" "$RUNTIME_DIR"
+
+gui_available() {
+  [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v zenity >/dev/null 2>&1
+}
+
+show_error() {
+  printf 'MK-Viral-Assembly: %s\n' "$1" >&2
+  if gui_available; then
+    zenity --error --title="MK-Viral-Assembly" --width=520 --text="$1" || true
+  fi
+}
+
+show_info() {
+  if gui_available; then
+    zenity --info --title="MK-Viral-Assembly" --width=520 --text="$1" || true
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+http_ok() {
+  python3 - "$1" <<'PY'
+import sys
+from urllib.request import urlopen
+try:
+    with urlopen(sys.argv[1], timeout=2) as response:
+        raise SystemExit(0 if response.status == 200 else 1)
+except Exception:
+    raise SystemExit(1)
+PY
+}
+
+if [[ "${MKVA_LAUNCHER_TEST:-}" == "1" ]]; then
+  [[ -x "$BOOTSTRAP" ]] || { printf 'Missing bootstrap: %s\n' "$BOOTSTRAP" >&2; exit 1; }
+  command -v python3 >/dev/null
+  printf 'MKVA_PACKAGE_DIR=%s\n' "$PACKAGE_DIR"
+  printf 'MKVA_APP_DATA_DIR=%s\n' "$APP_DATA_DIR"
+  printf 'MKVA_RELEASE=%s\n' "$RELEASE_REF"
+  exit 0
+fi
+
+if [[ "${1:-}" == "--diagnose" ]]; then
+  printf 'Package: %s\nData: %s\nSource: %s\nLog: %s\n' "$PACKAGE_DIR" "$APP_DATA_DIR" "$SOURCE_DIR" "$LOG_FILE"
+  http_ok "http://127.0.0.1:8787/api/health" && printf 'API: ready\n' || printf 'API: stopped\n'
+  http_ok "http://127.0.0.1:3000" && printf 'WebTool: ready\n' || printf 'WebTool: stopped\n'
+  exit 0
+fi
+
+if [[ "${1:-}" == "--stop" ]]; then
+  if [[ -f "$PID_FILE" ]]; then
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+      if kill -0 -- "-$pid" 2>/dev/null; then
+        kill -TERM -- "-$pid" 2>/dev/null || true
+      else
+        kill "$pid" 2>/dev/null || true
+      fi
+    fi
+    rm -f -- "$PID_FILE"
+  fi
+  show_info "O serviço local iniciado pelo aplicativo foi encerrado."
+  exit 0
+fi
+
+exec 9>"$STATE_DIR/launcher.lock"
+if ! flock -n 9; then
+  show_info "O MK-Viral-Assembly já está sendo preparado. Aguarde e tente novamente."
+  exit 0
+fi
+
+needs_setup=false
+for required in "$SOURCE_DIR/main.nf" "$SOURCE_DIR/webtool/start-local.sh" "$NEXTFLOW_ENV/bin/nextflow" "$NEXTFLOW_ENV/bin/java" "$WEBTOOL_ENV/bin/node" "$WEBTOOL_ENV/bin/npm"; do
+  [[ -e "$required" ]] || needs_setup=true
+done
+[[ -d "$SOURCE_DIR/webtool/dist" ]] || needs_setup=true
+
+if [[ "$needs_setup" == true ]]; then
+  if gui_available; then
+    zenity --question --title="MK-Viral-Assembly — primeira instalação" --width=560 \
+      --ok-label="Continuar" --cancel-label="Sair" \
+      --text="A primeira inicialização baixará e preparará ambientes isolados para Nextflow e a WebTool.\n\nMantenha a conexão com a internet e reserve pelo menos 30 GB livres para o programa, análises e bancos opcionais." || exit 0
+    set +e
+    env MKVA_RELEASE_REF="$RELEASE_REF" MKVA_APP_DATA_DIR="$APP_DATA_DIR" "$BOOTSTRAP" 2>&1 \
+      | while IFS= read -r line; do
+          printf '[%s] %s\n' "$(date '+%F %T')" "$line" >> "$LOG_FILE"
+          case "$line" in
+            STATUS:*) printf '# %s\n' "${line#STATUS:}" ;;
+            ERROR:*) printf '# %s\n' "${line#ERROR:}" ;;
+          esac
+        done \
+      | zenity --progress --pulsate --auto-close --no-cancel --width=560 \
+          --title="Preparando MK-Viral-Assembly" --text="Iniciando..." --percentage=0
+    codes=("${PIPESTATUS[@]}")
+    set -e
+    bootstrap_status="${codes[0]}"
+  else
+    set +e
+    env MKVA_RELEASE_REF="$RELEASE_REF" MKVA_APP_DATA_DIR="$APP_DATA_DIR" "$BOOTSTRAP" 2>&1 | tee -a "$LOG_FILE"
+    bootstrap_status="${PIPESTATUS[0]}"
+    set -e
+  fi
+  if [[ "$bootstrap_status" -ne 0 ]]; then
+    show_error "A preparação não foi concluída. Consulte o log em:\n$LOG_FILE"
+    exit "$bootstrap_status"
+  fi
+fi
+
+if ! http_ok "http://127.0.0.1:3000" || ! http_ok "http://127.0.0.1:8787/api/health"; then
+  if [[ -f "$PID_FILE" ]]; then
+    old_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ ! "$old_pid" =~ ^[0-9]+$ ]] || ! kill -0 "$old_pid" 2>/dev/null; then
+      rm -f -- "$PID_FILE"
+    fi
+  fi
+  if [[ ! -f "$PID_FILE" ]]; then
+    nohup setsid env \
+      MKVA_NODE_ENV_BIN="$WEBTOOL_ENV/bin" \
+      MKVA_NEXTFLOW="$NEXTFLOW_ENV/bin/nextflow" \
+      MKVA_JAVA="$NEXTFLOW_ENV/bin/java" \
+      MKVA_DEFAULT_PROFILE=conda \
+      "$SOURCE_DIR/webtool/start-local.sh" >> "$SERVICE_LOG" 2>&1 < /dev/null &
+    service_pid=$!
+    printf '%s\n' "$service_pid" > "$PID_FILE"
+    disown "$service_pid" 2>/dev/null || true
+  fi
+
+  ready=false
+  for _ in $(seq 1 120); do
+    if http_ok "http://127.0.0.1:3000" && http_ok "http://127.0.0.1:8787/api/health"; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$ready" != true ]]; then
+    show_error "A WebTool não iniciou. Consulte o log em:\n$SERVICE_LOG"
+    exit 1
+  fi
+fi
+
+url="http://127.0.0.1:3000"
+if [[ "${MKVA_NO_OPEN:-}" == "1" ]]; then
+  printf '%s\n' "$url"
+  exit 0
+fi
+
+for browser in chromium chromium-browser google-chrome google-chrome-stable microsoft-edge microsoft-edge-stable brave-browser; do
+  if command -v "$browser" >/dev/null 2>&1; then
+    nohup "$browser" --app="$url" >/dev/null 2>&1 &
+    exit 0
+  fi
+done
+
+if command -v xdg-open >/dev/null 2>&1; then
+  nohup xdg-open "$url" >/dev/null 2>&1 &
+  exit 0
+fi
+
+show_error "Nenhum navegador gráfico foi encontrado. Abra manualmente: $url"
+exit 1
