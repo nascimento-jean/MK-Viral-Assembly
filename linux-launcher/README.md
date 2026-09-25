@@ -1,6 +1,6 @@
 # Ubuntu desktop package
 
-This directory builds the Ubuntu `.deb` package for the MK-Viral-Assembly WebTool.
+This directory builds the Ubuntu `.deb` package for the MK-Viral-Assembly WebTool. The application uses a native GTK window backed by the Ubuntu WebKit runtime, so it does not open the user's browser.
 
 The package installs only a small desktop launcher, icon and bootstrap script. On first launch, the bootstrap downloads the matching tagged project release and creates isolated runtimes under:
 
@@ -28,6 +28,7 @@ The command produces a Debian package and SHA-256 sidecar under `linux-launcher/
 ```bash
 ./linux-launcher/tests/test-linux-launcher.sh
 MKVA_BOOTSTRAP_TEST=1 ./linux-launcher/bootstrap-linux.sh
+MKVA_WINDOW_TEST=1 ./linux-launcher/mkva-window
 MKVA_LAUNCHER_TEST=1 MKVA_PACKAGE_DIR=./linux-launcher ./linux-launcher/mkva-webtool
 ```
 

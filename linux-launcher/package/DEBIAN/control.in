@@ -4,10 +4,9 @@ Section: science
 Priority: optional
 Architecture: @ARCH@
 Maintainer: Jean Nascimento <nascimento-jean@users.noreply.github.com>
-Depends: bash, python3 (>= 3.10), ca-certificates, tar, xdg-utils, zenity, util-linux
-Recommends: firefox | chromium-browser | chromium
+Depends: bash, python3 (>= 3.10), python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, ca-certificates, tar, zenity, util-linux
 Homepage: https://github.com/nascimento-jean/MK-Viral-Assembly
 Description: Graphical local interface for MK-Viral-Assembly
- Installs a desktop launcher for the MK-Viral-Assembly Nextflow pipeline.
+ Installs a native application window for the MK-Viral-Assembly Nextflow pipeline.
  On first launch it creates isolated Conda environments in the user's home
  directory. FASTQ files, databases and results remain on the local computer.

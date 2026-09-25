@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Native Ubuntu window for the local MK-Viral-Assembly WebTool."""
+
+from __future__ import annotations
+
+import os
+import sys
+
+
+APP_ID = "org.mkviralassembly.WebTool"
+APP_TITLE = "MK-Viral-Assembly"
+DEFAULT_URL = "http://127.0.0.1:3000"
+
+
+def requested_url(arguments: list[str]) -> str:
+    return arguments[1] if len(arguments) > 1 else DEFAULT_URL
+
+
+def run_window(url: str) -> int:
+    import gi
+
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("WebKit2", "4.1")
+    from gi.repository import Gio, GLib, Gtk, WebKit2
+
+    GLib.set_application_name(APP_TITLE)
+    GLib.set_prgname("mk-viral-assembly")
+
+    class MkvaApplication(Gtk.Application):
+        def __init__(self) -> None:
+            super().__init__(
+                application_id=APP_ID,
+                flags=Gio.ApplicationFlags.FLAGS_NONE,
+            )
+
+        @staticmethod
+        def configure_webview(webview: WebKit2.WebView) -> None:
+            settings = webview.get_settings()
+            settings.set_enable_developer_extras(False)
+
+        def show_webview(self, webview: WebKit2.WebView) -> None:
+            window = Gtk.ApplicationWindow(application=self)
+            window.set_title(APP_TITLE)
+            window.set_icon_name("mk-viral-assembly")
+            window.set_default_size(1280, 820)
+            window.set_size_request(900, 600)
+            window.add(webview)
+            window.show_all()
+            window.present()
+
+        def create_webview(
+            self,
+            source: WebKit2.WebView,
+            _navigation_action: object,
+        ) -> WebKit2.WebView:
+            child = WebKit2.WebView.new_with_related_view(source)
+            self.configure_webview(child)
+            child.connect("create", self.create_webview)
+            child.connect("ready-to-show", lambda view: self.show_webview(view))
+            return child
+
+        def do_activate(self) -> None:
+            active = self.get_active_window()
+            if active is not None:
+                active.present()
+                return
+
+            webview = WebKit2.WebView()
+            self.configure_webview(webview)
+            webview.connect("create", self.create_webview)
+            webview.load_uri(url)
+            self.show_webview(webview)
+
+    application = MkvaApplication()
+    return application.run([sys.argv[0]])
+
+
+def main() -> int:
+    url = requested_url(sys.argv)
+    if os.environ.get("MKVA_WINDOW_TEST") == "1":
+        print(f"MKVA_WINDOW_URL={url}")
+        print(f"MKVA_WINDOW_APP_ID={APP_ID}")
+        return 0
+
+    try:
+        return run_window(url)
+    except (ImportError, ValueError) as error:
+        print(f"MK-Viral-Assembly window could not start: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

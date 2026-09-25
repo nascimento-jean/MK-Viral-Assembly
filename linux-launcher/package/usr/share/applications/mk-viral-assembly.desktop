@@ -9,3 +9,4 @@ Terminal=false
 Categories=Science;Education;
 Keywords=virus;genomics;bioinformatics;Nextflow;assembly;
 StartupNotify=true
+StartupWMClass=mk-viral-assembly

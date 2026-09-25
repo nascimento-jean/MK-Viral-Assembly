@@ -72,6 +72,8 @@ The desktop package supports Ubuntu 22.04 and 24.04 on x86-64/AMD64 computers.
 5. Open the applications menu, search for **MK-Viral-Assembly**, and start it.
 6. Select **Continue** in the first-installation dialog and wait for setup to finish.
 
+After setup, the WebTool opens in its own **MK-Viral-Assembly** window without browser tabs, an address bar or other browser controls. The package automatically installs the required WebKit graphical component.
+
 ### Install from a terminal
 
 If the graphical application center does not open the package, run:
@@ -82,7 +84,14 @@ sha256sum -c MK-Viral-Assembly-WebTool_1.2.1_amd64.deb.sha256
 sudo apt install ./MK-Viral-Assembly-WebTool_1.2.1_amd64.deb
 ```
 
-Then open **MK-Viral-Assembly** from the applications menu. The `apt install ./...` command also installs the small system dependencies required by the launcher.
+Then open **MK-Viral-Assembly** from the applications menu. The `apt install ./...` command also installs the graphical and system dependencies required by the application.
+
+If version 1.2.1 is already installed and you need to replace an earlier edition of the same package file, run:
+
+```bash
+cd ~/Downloads
+sudo apt install --reinstall ./MK-Viral-Assembly-WebTool_1.2.1_amd64.deb
+```
 
 The package installs only a desktop launcher, icon and bootstrap script under system directories. On first launch, the application creates its isolated runtime in your home directory:
 
@@ -146,6 +155,6 @@ sudo apt remove mk-viral-assembly-webtool
 - **Institutional proxy or firewall:** allow GitHub, conda-forge, Bioconda, NCBI and registries used by the selected pipeline profile.
 - **Folder picker opens behind the application:** update to the latest release. The current launchers request native dialogs in the foreground.
 - **Ubuntu package reports an unsupported architecture:** the current package supports AMD64/x86-64, not ARM64.
-- **WebTool does not open on Ubuntu:** run `mk-viral-assembly --diagnose` and inspect `~/.local/state/mk-viral-assembly/launcher.log` and `webtool-service.log`.
+- **WebTool does not open on Ubuntu:** confirm that the `.deb` was installed with `apt`, run `mk-viral-assembly --diagnose`, and inspect `~/.local/state/mk-viral-assembly/launcher.log` and `webtool-service.log`.
 - **Version 1.2.0 still says setup is running after completion:** install version 1.2.1 or newer. Sign out of Ubuntu and sign in once to stop the old process, then open the application once.
 - **Insufficient storage:** FASTQs, Nextflow work directories and databases are usually the largest items.

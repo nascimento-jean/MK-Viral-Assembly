@@ -50,7 +50,7 @@ The graphical WebTool lets Windows and Ubuntu users configure and run MK-Viral-A
 1. Open the [latest release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
 2. Download `MK-Viral-Assembly-WebTool_1.2.1_amd64.deb`.
 3. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.1_amd64.deb`.
-4. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation.
+4. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation. On Ubuntu, the WebTool opens in its own application window without browser controls.
 
 Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md) or the [Portuguese guide](docs/INSTALACAO_WEBTOOL_PT_BR.md) for requirements, checksum verification, database behavior and troubleshooting.
 
