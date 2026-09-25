@@ -12,7 +12,7 @@ RUNTIME_DIR="${XDG_RUNTIME_DIR:-$STATE_DIR}"
 LOG_FILE="$STATE_DIR/launcher.log"
 SERVICE_LOG="$STATE_DIR/webtool-service.log"
 PID_FILE="$RUNTIME_DIR/mkva-webtool.pid"
-RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.0}"
+RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.1}"
 
 mkdir -p "$STATE_DIR" "$RUNTIME_DIR"
 
@@ -45,6 +45,35 @@ try:
 except Exception:
     raise SystemExit(1)
 PY
+}
+
+open_webtool() {
+  local url="http://127.0.0.1:3000"
+  if [[ "${MKVA_NO_OPEN:-}" == "1" ]]; then
+    printf '%s\n' "$url"
+    return 0
+  fi
+
+  local browser
+  for browser in chromium chromium-browser google-chrome google-chrome-stable microsoft-edge microsoft-edge-stable brave-browser; do
+    if command -v "$browser" >/dev/null 2>&1; then
+      nohup "$browser" --app="$url" >/dev/null 2>&1 9>&- &
+      return 0
+    fi
+  done
+
+  if command -v xdg-open >/dev/null 2>&1; then
+    nohup xdg-open "$url" >/dev/null 2>&1 9>&- &
+    return 0
+  fi
+
+  show_error "Nenhum navegador gráfico foi encontrado. Abra manualmente: $url"
+  return 1
+}
+
+release_launcher_lock() {
+  flock -u 9
+  exec 9>&-
 }
 
 if [[ "${MKVA_LAUNCHER_TEST:-}" == "1" ]]; then
@@ -81,7 +110,18 @@ fi
 
 exec 9>"$STATE_DIR/launcher.lock"
 if ! flock -n 9; then
+  if http_ok "http://127.0.0.1:3000" && http_ok "http://127.0.0.1:8787/api/health"; then
+    open_webtool
+    exit $?
+  fi
   show_info "O MK-Viral-Assembly já está sendo preparado. Aguarde e tente novamente."
+  exit 0
+fi
+
+if [[ "${MKVA_LAUNCHER_LOCK_TEST:-}" == "1" ]]; then
+  release_launcher_lock
+  nohup sleep "${MKVA_LOCK_TEST_SECONDS:-5}" >/dev/null 2>&1 9>&- &
+  printf 'MKVA_LOCK_TEST_CHILD=%s\n' "$!"
   exit 0
 fi
 
@@ -135,7 +175,7 @@ if ! http_ok "http://127.0.0.1:3000" || ! http_ok "http://127.0.0.1:8787/api/hea
       MKVA_NEXTFLOW="$NEXTFLOW_ENV/bin/nextflow" \
       MKVA_JAVA="$NEXTFLOW_ENV/bin/java" \
       MKVA_DEFAULT_PROFILE=conda \
-      "$SOURCE_DIR/webtool/start-local.sh" >> "$SERVICE_LOG" 2>&1 < /dev/null &
+      "$SOURCE_DIR/webtool/start-local.sh" >> "$SERVICE_LOG" 2>&1 < /dev/null 9>&- &
     service_pid=$!
     printf '%s\n' "$service_pid" > "$PID_FILE"
     disown "$service_pid" 2>/dev/null || true
@@ -155,23 +195,5 @@ if ! http_ok "http://127.0.0.1:3000" || ! http_ok "http://127.0.0.1:8787/api/hea
   fi
 fi
 
-url="http://127.0.0.1:3000"
-if [[ "${MKVA_NO_OPEN:-}" == "1" ]]; then
-  printf '%s\n' "$url"
-  exit 0
-fi
-
-for browser in chromium chromium-browser google-chrome google-chrome-stable microsoft-edge microsoft-edge-stable brave-browser; do
-  if command -v "$browser" >/dev/null 2>&1; then
-    nohup "$browser" --app="$url" >/dev/null 2>&1 &
-    exit 0
-  fi
-done
-
-if command -v xdg-open >/dev/null 2>&1; then
-  nohup xdg-open "$url" >/dev/null 2>&1 &
-  exit 0
-fi
-
-show_error "Nenhum navegador gráfico foi encontrado. Abra manualmente: $url"
-exit 1
+release_launcher_lock
+open_webtool
