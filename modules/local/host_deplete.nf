@@ -3,7 +3,7 @@ process HOST_DEPLETE {
     label 'process_medium'
 
     conda "bioconda::krakentools=1.2.1"
-    container "quay.io/biocontainers/krakentools:1.2.1--pyh7e72e81_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/krakentools:1.2.1--pyh7e72e81_0' : 'quay.io/biocontainers/krakentools:1.2.1--pyh7e72e81_0' }"
 
     input:
     tuple val(meta), path(reads), path(kraken_output), path(kraken_report)

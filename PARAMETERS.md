@@ -170,6 +170,23 @@ samplesheet `gff` value overrides the global GFF for that sample.
 
 ## 5. Optional analyses
 
+### `--metadata <table.csv|table.tsv>`
+
+Optional per-sample metadata table. The input must be CSV or TSV text and must
+contain `Código Amostra`, matching the sample identifier in the samplesheet.
+The pipeline writes one `metadata_<virus>.xlsx` workbook for PASS/WARN samples.
+
+For an automatic GISAID bulk-upload bundle, also provide `Submissor`,
+`Lab_Origem`, `Lab_Submissão`, `Endereço`, `Autores`, and `Código da Região`.
+Dengue requires `Sorotipo` (`DENV1`–`DENV4`), and RSV/VSR requires `Genótipo`
+(`A` or `B`) when the typing step does not supply it. The optional column
+`Tecnologia de Sequenciamento` can record the instrument; otherwise the pipeline
+uses `Illumina`, consistent with its paired-end Illumina input. Supported GISAID outputs
+are SARS-CoV-2, Dengue, Chikungunya, Oropouche, and RSV/VSR. The resulting
+official-template `.xls` and matching FASTA are written under
+`results/<virus>/gisaid/`; incomplete samples are skipped with a warning while
+the rest of the pipeline continues.
+
 ### `--kraken2_db <directory>`
 
 Enables Kraken2 taxonomic screening, the dashboard Taxonomy tab, Krona, and
@@ -412,6 +429,8 @@ outdir/
 │   ├── krona/
 │   ├── nextclade/
 │   ├── blast/
+│   ├── metadata_<virus>.xlsx
+│   ├── gisaid/<virus>_GISAID_submission.{xls,fasta}
 │   └── <virus>_dashboard.html
 ├── multiqc/
 └── pipeline_info/

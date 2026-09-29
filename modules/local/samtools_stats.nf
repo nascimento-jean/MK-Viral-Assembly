@@ -3,7 +3,7 @@ process SAMTOOLS_STATS {
     label 'process_low'
 
     conda "bioconda::samtools=1.20"
-    container "quay.io/biocontainers/samtools:1.20--h50ea8bc_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/samtools:1.20--h50ea8bc_0' : 'quay.io/biocontainers/samtools:1.20--h50ea8bc_0' }"
 
     input:
     tuple val(meta), path(bam), path(bai), path(reference)

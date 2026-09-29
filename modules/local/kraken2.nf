@@ -3,7 +3,7 @@ process KRAKEN2 {
     label 'process_high'
 
     conda "bioconda::kraken2=2.1.3"
-    container "quay.io/biocontainers/kraken2:2.1.3--pl5321hdcf5f25_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/kraken2:2.1.3--pl5321hdcf5f25_0' : 'quay.io/biocontainers/kraken2:2.1.3--pl5321hdcf5f25_0' }"
 
     input:
     tuple val(meta), path(reads)

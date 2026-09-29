@@ -2,7 +2,7 @@ process MULTIQC {
     label 'process_low'
 
     conda "bioconda::multiqc=1.21"
-    container "quay.io/biocontainers/multiqc:1.21--pyhdfd78af_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/multiqc:1.21--pyhdfd78af_0' : 'quay.io/biocontainers/multiqc:1.21--pyhdfd78af_0' }"
 
     input:
     path(qc_files, stageAs: "qc/*")

@@ -48,8 +48,8 @@ The graphical WebTool lets Windows and Ubuntu users configure and run MK-Viral-A
 ### Ubuntu 22.04/24.04
 
 1. Open the [latest release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Download `MK-Viral-Assembly-WebTool_1.2.1_amd64.deb`.
-3. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.1_amd64.deb`.
+2. Download `MK-Viral-Assembly-WebTool_1.2.2_amd64.deb`.
+3. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.2_amd64.deb`.
 4. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation. On Ubuntu, the WebTool opens in its own application window without browser controls.
 
 Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md) or the [Portuguese guide](docs/INSTALACAO_WEBTOOL_PT_BR.md) for requirements, checksum verification, database behavior and troubleshooting.
@@ -370,6 +370,7 @@ See [PARAMETERS.md](PARAMETERS.md) for the complete parameter guide and
 | `--skip_combine` | `false` | Skip run-level combined multi-FASTA(s) |
 | `--combine_min_status` | `WARN` | Lowest QC status kept in the combined FASTA(s): `PASS`\|`WARN`\|`FAIL` (default drops FAIL) |
 | `--run_name`     | –       | Run label shown in the dashboard header (e.g. sequencing lot) |
+| `--metadata`     | –       | Optional CSV/TSV of per-sample metadata → writes `metadata_<virus>.xlsx`. Include `Submissor`, `Lab_Origem`, `Lab_Submissão`, `Endereço`, `Autores` and `Código da Região` to also auto-generate a GISAID bulk-upload spreadsheet + renamed FASTA (SARS-CoV-2, Dengue, Chikungunya, Oropouche, RSV/VSR) — see [Outputs](#outputs) |
 | `--dash_pass`    | `0.90`  | Consensus completeness ≥ this → **PASS** badge |
 | `--dash_warn`    | `0.70`  | Completeness ≥ this (and < pass) → **WARN**; below → **FAIL** |
 
@@ -407,6 +408,9 @@ results/
 │   ├── sample_validation/             <sample>.sample_validation.tsv  (input status; skipped/valid/CN*)
 │   ├── nextclade/                    nextclade_summary.tsv  (clade/lineage/genotype; only with --nextclade)
 │   ├── blast/                        blast_summary.tsv  (species confirmation; only with --blast_id)
+│   ├── metadata_<virus>.xlsx         consolidated per-sample workbook (only with --metadata)
+│   ├── gisaid/                       <virus>_GISAID_submission.xls + .fasta (only when --metadata's
+│   │                                 table also carries the institutional columns, see below)
 │   └── <virus>_dashboard.html        static surveillance dashboard for THIS virus (open in any browser)
 ├── multiqc/                          multiqc_report.html   (global, whole run)
 └── pipeline_info/                    timeline, report, trace, DAG (provenance; global)
@@ -414,6 +418,39 @@ results/
 
 A single-virus run just yields one such `<virus>/` folder plus the global
 `multiqc/` and `pipeline_info/`.
+
+### Metadata workbook and GISAID submission
+
+Passing `--metadata <table.csv>` (CSV or TSV text; XLSX is not accepted as input) writes `metadata_<virus>.xlsx`, one
+row per PASS/WARN sample, merging your table's epidemiological columns
+(`Código Amostra`, `CT`, `Município`, `UF município solicitante`, `Data Coleta`,
+`Tipo Amostra`, `Idade`, `Tipo Idade`, `Sexo`, optional `Tecnologia de Sequenciamento`, and optional `Sorotipo`/`Genótipo`)
+with pipeline-derived ones (reads, mean depth, coverage breadth, lineage/genotype).
+`Código Amostra` is the only strictly required column for the consolidated workbook;
+everything else is written blank if absent. For GISAID, provide `Sorotipo` as
+`DENV1`–`DENV4` for Dengue and `Genótipo` as `A` or `B` for RSV/VSR when the
+corresponding value is not available from the pipeline typing step.
+
+Add six more columns — `Submissor`, `Lab_Origem`, `Lab_Submissão`, `Endereço`,
+`Autores`, `Código da Região` — and the pipeline additionally writes a ready-to-use
+**GISAID bulk-upload bundle** per virus, in `<virus>/gisaid/`:
+
+- `<virus>_GISAID_submission.xls` — the official GISAID template for that virus
+  (EpiCoV for SARS-CoV-2, EpiArbo for Dengue/Chikungunya/Oropouche, EpiRSV for
+  RSV/VSR), filled in from your metadata table.
+- `<virus>_GISAID_submission.fasta` — the run's consensus sequences renamed to
+  match the spreadsheet's "Virus name" column exactly (e.g.
+  `hCoV-19/Brazil/<Código da Região>-<Código Amostra>/<year>`), ready to upload
+  together as-is.
+
+The required Excel libraries are bundled as pinned pure-Python wheels, so this step does not download packages during an analysis.
+
+Any virus this isn't configured for (currently anything besides SARS-CoV-2,
+Dengue, Chikungunya, Oropouche and RSV/VSR) is skipped for the GISAID step only —
+`metadata_<virus>.xlsx` is unaffected either way. A sample missing any of the
+six institutional columns, its collection date, or (for Dengue/RSV) a
+recognisable serotype/genotype is also skipped individually, with a warning in
+the run log; the rest of the batch is still produced.
 
 **One dashboard is produced per virus** (`<virus>/<virus>_dashboard.html`), each
 reflecting only that virus's samples — so a mixed run yields e.g.

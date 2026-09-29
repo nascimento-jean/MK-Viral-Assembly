@@ -89,7 +89,7 @@ PICKER_CONFIG = {
     "samplesheet": {"mode": "file", "title": "Selecione o samplesheet CSV", "filter": "CSV (*.csv)|*.csv|Todos os arquivos (*.*)|*.*"},
     "samplesheet_parent": {"mode": "folder", "title": "Selecione a pasta-pai com as subpastas dos vírus"},
     "samplesheet_output": {"mode": "save", "title": "Salvar samplesheet como", "filter": "CSV (*.csv)|*.csv|Todos os arquivos (*.*)|*.*", "default_name": "samplesheet.csv"},
-    "metadata": {"mode": "file", "title": "Selecione o arquivo de metadados", "filter": "Metadados (*.csv;*.xlsx)|*.csv;*.xlsx|Todos os arquivos (*.*)|*.*"},
+    "metadata": {"mode": "file", "title": "Selecione o arquivo de metadados CSV/TSV", "filter": "Metadados CSV/TSV (*.csv;*.tsv)|*.csv;*.tsv|Todos os arquivos (*.*)|*.*"},
     "outdir": {"mode": "folder", "title": "Selecione o diretório de resultados"},
     "kraken_db": {"mode": "folder", "title": "Selecione o diretório do banco Kraken2"},
 }
@@ -404,6 +404,8 @@ def build_command(payload: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
     kraken_enabled = bool(payload.get("kraken"))
     kraken_raw = clean_text(payload.get("kraken_db"), "Banco Kraken2")
     metadata = local_path(metadata_raw, "Metadados") if metadata_raw else ""
+    if metadata and Path(metadata).suffix.lower() not in {".csv", ".tsv"}:
+        raise ValueError("Metadados: selecione um arquivo CSV ou TSV")
     kraken_db = local_path(kraken_raw, "Banco Kraken2") if kraken_enabled and kraken_raw else ""
     primer_bed_raw = clean_text(payload.get("primer_bed"), "Primer BED") if input_mode == "single" else ""
     gff_raw = clean_text(payload.get("gff"), "Anotação GFF3") if input_mode == "single" else ""
@@ -617,6 +619,7 @@ ARTIFACT_CATEGORIES = {
     "dashboard": ("Dashboard de vigilância", ("**/*dashboard*.html",), True),
     "consensus": ("Sequências consenso", ("**/consensus/*.fa", "**/consensus/*.fasta"), False),
     "metadata": ("Metadados consolidados", ("**/metadata*.xlsx",), False),
+    "gisaid": ("Submissão GISAID", ("**/gisaid/*_GISAID_submission.*",), False),
     "quality": ("Relatório de qualidade", ("**/multiqc_report.html",), True),
     "variants": ("Variantes anotadas", ("**/variants/*.tsv",), False),
     "taxonomy": ("Classificação taxonômica", ("**/krona/*.html",), True),

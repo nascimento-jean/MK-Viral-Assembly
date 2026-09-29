@@ -3,7 +3,7 @@ process DASHBOARD {
     label 'process_single'
 
     conda "conda-forge::python=3.10"
-    container "quay.io/biocontainers/python:3.10"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/python:3.10' : 'quay.io/biocontainers/python:3.10' }"
 
     input:
     tuple val(virus),
@@ -36,7 +36,7 @@ process DASHBOARD {
     def bl_info  = blast_file    ? "--blast-info \"RefSeq viral local (max ${params.blast_db_max_age_days} dias)\"" : ""
     def rs_arg   = readstat_files ? "--read-stats-dir read_stats" : ""
     def val_arg  = validation_files ? "--validation-dir sample_validation" : ""
-    def val_krona_arg = validation_krona ? "--validation-krona validation_krona/krona.html" : ""
+    def val_krona_arg = validation_krona ? "--validation-krona run_validation/krona.html" : ""
     """
     make_dashboard.py \\
         --qc-dir consensus_qc \\

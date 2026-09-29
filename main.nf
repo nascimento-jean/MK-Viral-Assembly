@@ -148,7 +148,13 @@ def helpMessage() {
       --skip_combine   Skip run-level combined multi-FASTA(s)   [default: ${params.skip_combine}]
       --combine_min_status  Lowest QC status kept in combined FASTA: PASS|WARN|FAIL [default: ${params.combine_min_status}]
       --run_name       Label shown in the dashboard header      [default: Nextflow run name]
-      --metadata       Optional CSV/TSV metadata table; writes metadata_<virus>.xlsx
+      --metadata       Optional CSV/TSV metadata table; writes metadata_<virus>.xlsx.
+                        Include the columns Submissor, Lab_Origem, Lab_Submissão,
+                        Endereço, Autores and Código da Região to also auto-generate
+                        a GISAID bulk-upload spreadsheet + renamed FASTA for
+                        SARS-CoV-2, Dengue, Chikungunya, Oropouche and RSV/VSR
+                        samples (outdir/<virus>/gisaid/). Samples missing any of
+                        those columns are skipped from the GISAID output only.
       --dash_pass      Min completeness for PASS badge          [default: ${params.dash_pass}]
       --dash_warn      Min completeness for WARN badge          [default: ${params.dash_warn}]
       --aligner        'bwa' or 'minimap2'                      [default: ${params.aligner}]
@@ -271,6 +277,7 @@ include { BLAST_SUMMARY     } from './modules/local/blast_summary'
 include { MULTIQC           } from './modules/local/multiqc'
 include { DASHBOARD         } from './modules/local/dashboard'
 include { METADATA_XLSX    } from './modules/local/metadata_xlsx'
+include { GISAID_SUBMISSION } from './modules/local/gisaid_submission'
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -593,6 +600,28 @@ workflow {
         METADATA_XLSX (
             ch_meta_in,
             file(params.metadata, checkIfExists: true)
+        )
+
+        //
+        // Optional GISAID bulk-upload bundle (spreadsheet + renamed FASTA),
+        // one pair per supported virus. Reuses the metadata workbook just
+        // written above (unchanged) plus each sample's consensus FASTA(s).
+        // This remains available when --skip_combine is enabled and avoids
+        // passing a wildcard list as a single FASTA argument for segmented
+        // viruses. Requires the metadata table to also carry the institutional
+        // columns (Submissor, Lab_Origem, Lab_Submissão, Endereço, Autores,
+        // Código da Região); samples missing any of those, or belonging to
+        // a virus GISAID isn't configured for here, are skipped with a
+        // warning rather than failing the run.
+        //
+        ch_gisaid_consensus = IVAR_CONSENSUS.out.consensus
+            .map { meta, consensus -> [ meta.vdir, consensus ] }
+            .groupTuple()
+        ch_gisaid_in = METADATA_XLSX.out.xlsx.join( ch_gisaid_consensus )
+        GISAID_SUBMISSION (
+            ch_gisaid_in,
+            file("$projectDir/assets/gisaid_templates", checkIfExists: true),
+            file("$projectDir/assets/python_wheels", checkIfExists: true)
         )
     }
     //

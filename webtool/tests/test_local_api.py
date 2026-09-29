@@ -103,6 +103,29 @@ class BuildCommandTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Dataset Nextclade é obrigatório"):
                 local_api.build_command(payload)
 
+    def test_metadata_accepts_csv_and_tsv_but_rejects_xlsx(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reads = root / "reads"
+            reads.mkdir()
+            reference = root / "reference.fasta"
+            reference.write_text(">ref\nA\n", encoding="utf-8")
+            base = self.base_payload(root) | {
+                "input_mode": "single",
+                "raw_data_dir": str(reads),
+                "reference": str(reference),
+            }
+            for suffix in (".csv", ".tsv"):
+                metadata = root / f"metadata{suffix}"
+                metadata.write_text("Código Amostra\nSAMPLE01\n", encoding="utf-8")
+                command, normalized = local_api.build_command(base | {"metadata": str(metadata)})
+                self.assertIn("--metadata", command)
+                self.assertEqual(normalized["metadata"], str(metadata))
+            xlsx = root / "metadata.xlsx"
+            xlsx.write_bytes(b"not-an-xlsx")
+            with self.assertRaisesRegex(ValueError, "CSV ou TSV"):
+                local_api.build_command(base | {"metadata": str(xlsx)})
+
     def test_single_allows_empty_dataset_when_nextclade_is_disabled(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -232,10 +255,13 @@ class ResultDiscoveryTests(unittest.TestCase):
             (root / "dengue" / "read_stats").mkdir()
             (root / "dengue" / "consensus_qc").mkdir()
             (root / "dengue" / "blast").mkdir()
+            (root / "dengue" / "gisaid").mkdir()
             (root / "multiqc").mkdir()
             (root / "dengue" / "dengue_dashboard.html").write_text("<html></html>", encoding="utf-8")
             (root / "dengue" / "consensus" / "sample.consensus.fa").write_text(">sample\nACGT\n", encoding="utf-8")
             (root / "multiqc" / "multiqc_report.html").write_text("<html></html>", encoding="utf-8")
+            (root / "dengue" / "gisaid" / "dengue_GISAID_submission.xls").write_bytes(b"xls")
+            (root / "dengue" / "gisaid" / "dengue_GISAID_submission.fasta").write_text(">sample\nACGT\n", encoding="utf-8")
             (root / "dengue" / "read_stats" / "sample.read_stats.tsv").write_text(
                 "sample\treads_raw\treads_post_fastp\treads_post_deplete\nSAMPLE01\t42444\t42000\t41900\n", encoding="utf-8")
             (root / "dengue" / "consensus_qc" / "sample.consensus_qc.tsv").write_text(
@@ -250,6 +276,8 @@ class ResultDiscoveryTests(unittest.TestCase):
             self.assertTrue(manifest["consensus"]["available"])
             self.assertTrue(manifest["quality"]["available"])
             self.assertFalse(manifest["metadata"]["available"])
+            self.assertTrue(manifest["gisaid"]["available"])
+            self.assertEqual(manifest["gisaid"]["count"], 2)
             self.assertFalse(manifest["variants"]["available"])
 
             samples = local_api.sample_records(job)

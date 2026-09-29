@@ -3,7 +3,7 @@ process IVAR_CONSENSUS {
     label 'process_medium'
 
     conda "bioconda::ivar=1.4.3 bioconda::samtools=1.20"
-    container "quay.io/biocontainers/ivar:1.4.3--h43eeafb_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/ivar:1.4.3--h43eeafb_0' : 'quay.io/biocontainers/ivar:1.4.3--h43eeafb_0' }"
 
     input:
     tuple val(meta), path(bam), path(bai), path(reference)

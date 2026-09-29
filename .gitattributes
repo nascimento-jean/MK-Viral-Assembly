@@ -1,6 +1,8 @@
 * text=auto
 *.ico binary
 *.exe binary
+*.xls binary
+*.whl binary
 *.sh text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf

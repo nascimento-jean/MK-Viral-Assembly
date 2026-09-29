@@ -64,6 +64,8 @@ test("keeps execution local and passes validated arguments without a shell", asy
   assert.ok(page.includes("setFilter"));
   assert.ok(page.includes("/artifacts"));
   assert.ok(page.includes("Exportar tabela"));
+  assert.ok(page.includes("Baixar submissão GISAID"));
+  assert.ok(page.includes("GISAID_SUBMISSION"));
   assert.ok(!page.includes("Loading database information"));
   assert.ok(!page.includes("18,493 sequences classified"));
   assert.ok(!page.includes("MKVA-2026-018"));

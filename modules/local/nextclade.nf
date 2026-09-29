@@ -2,7 +2,7 @@ process NEXTCLADE_RUN {
     label 'process_medium'
 
     conda "bioconda::nextclade=3.21.2"
-    container "quay.io/biocontainers/nextclade:3.21.2--h9ee0642_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/nextclade:3.21.2--h9ee0642_0' : 'quay.io/biocontainers/nextclade:3.21.2--h9ee0642_0' }"
 
     input:
     tuple val(gkey), path(consensus, stageAs: "consensus/*"), path(datasets, stageAs: "ds/*"), val(segmented)

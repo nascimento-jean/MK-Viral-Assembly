@@ -3,7 +3,7 @@ process CONSENSUS_QC {
     label 'process_single'
 
     conda "conda-forge::python=3.10"
-    container "quay.io/biocontainers/python:3.10"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/python:3.10' : 'quay.io/biocontainers/python:3.10' }"
 
     input:
     // depth is the `samtools depth -a` file produced by SAMTOOLS_STATS

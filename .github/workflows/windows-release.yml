@@ -34,7 +34,9 @@ jobs:
       - name: Validate Ubuntu launcher without downloads
         run: bash linux-launcher/tests/test-linux-launcher.sh
       - name: Validate pipeline Python tools
-        run: python3 -m compileall -q bin webtool/local_api.py
+        run: |
+          python3 -m compileall -q bin webtool/local_api.py
+          python3 -m unittest tests/test_gisaid_submission.py -v
 
   windows-installer:
     needs: validate

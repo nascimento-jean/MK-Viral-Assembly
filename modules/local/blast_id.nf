@@ -3,7 +3,7 @@ process BLASTN_ID {
     label 'process_medium'
 
     conda "bioconda::blast=2.17.0"
-    container "quay.io/biocontainers/blast:2.17.0--h66d330f_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/blast:2.17.0--h66d330f_0' : 'quay.io/biocontainers/blast:2.17.0--h66d330f_0' }"
 
     input:
     tuple val(vdir), path(consensus, stageAs: "consensus/*")   // one virus' consensus FASTAs

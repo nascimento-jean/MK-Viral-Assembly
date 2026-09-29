@@ -17,6 +17,7 @@ from xml.sax.saxutils import escape
 BASE_HEADERS = [
     "Vírus", "Código Amostra", "CT", "Município", "UF município solicitante",
     "Data Coleta", "Tipo Amostra", "Idade", "Tipo Idade", "Sexo",
+    "Tecnologia de Sequenciamento", "Submissor", "Lab_Origem", "Lab_Submissão", "Endereço", "Autores", "Código da Região",
     "Software Montagem", "Versão software", "Versão primer", "Versão Pangolin",
     "Reads", "Profundidade Média", "Cobertura",
 ]
@@ -24,6 +25,7 @@ FINAL_HEADERS = ["Nome da Sequencia"]
 META_FIELDS = [
     "Código Amostra", "CT", "Município", "UF município solicitante",
     "Data Coleta", "Tipo Amostra", "Idade", "Tipo Idade", "Sexo",
+    "Tecnologia de Sequenciamento", "Submissor", "Lab_Origem", "Lab_Submissão", "Endereço", "Autores", "Código da Região",
 ]
 
 
@@ -162,7 +164,11 @@ def write_xlsx(path, headers, rows):
     widths = {
         "Vírus": 14, "Código Amostra": 18, "CT": 10, "Município": 24,
         "UF município solicitante": 22, "Data Coleta": 14, "Tipo Amostra": 16,
-        "Idade": 10, "Tipo Idade": 12, "Sexo": 12, "Software Montagem": 20,
+        "Idade": 10, "Tipo Idade": 12, "Sexo": 12,
+        "Tecnologia de Sequenciamento": 26,
+        "Submissor": 18, "Lab_Origem": 26, "Lab_Submissão": 26, "Endereço": 34,
+        "Autores": 30, "Código da Região": 18,
+        "Software Montagem": 20,
         "Versão software": 16, "Versão primer": 18, "Versão Pangolin": 16,
         "Reads": 12, "Profundidade Média": 18, "Cobertura": 12,
         "Sorotipo": 12, "Linhagem": 20, "Genótipo": 20,
@@ -217,6 +223,9 @@ def main():
     ap.add_argument("--software-version", default="")
     args = ap.parse_args()
 
+    metadata_suffix = os.path.splitext(args.metadata)[1].lower()
+    if metadata_suffix not in (".csv", ".tsv", ".txt"):
+        sys.exit("ERROR: --metadata must be a CSV or TSV text file (XLSX is not supported as input).")
     meta_rows = read_table(args.metadata)
     if not meta_rows:
         sys.exit(f"ERROR: no rows found in metadata table: {args.metadata}")
@@ -290,9 +299,12 @@ def main():
             elif h == "Cobertura":
                 row.append(round(coverage, 2) if coverage is not None else "")
             elif h == "Sorotipo":
-                row.append(dengue_serotype(meta.get("Vírus") or args.virus))
+                row.append(dengue_serotype(meta.get("Sorotipo") or meta.get("Vírus") or args.virus))
             elif h in ("Linhagem", "Genótipo"):
-                row.append(fmt_lineage(nc_by_code.get(code)))
+                # Prefer the pipeline typing result, but retain an explicit
+                # user-provided value when Nextclade was not requested or did
+                # not produce a call. RSV subtype A/B is mandatory in GISAID.
+                row.append(fmt_lineage(nc_by_code.get(code)) or meta.get(h, ""))
             else:
                 row.append("")
         output_rows.append(row)

@@ -2,7 +2,7 @@ process BLAST_DB_PREP {
     label 'process_medium'
 
     conda "bioconda::blast=2.17.0 conda-forge::wget"
-    container "quay.io/biocontainers/blast:2.17.0--h66d330f_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/blast:2.17.0--h66d330f_0' : 'quay.io/biocontainers/blast:2.17.0--h66d330f_0' }"
 
     // Persistent, run-scoped freshness: the DB lives in --blast_db_dir on the
     // host, similar to the Nextclade dataset cache. cache:false keeps the age

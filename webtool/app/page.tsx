@@ -47,7 +47,7 @@ const stageDefinitions = [
   { label: "Alinhamento", processes: ["HOST_DEPLETE", "ALIGN:BWA_MEM", "IVAR_TRIM", "SAMTOOLS_STATS"], optional: (name: string, job: ApiJob) => name === "HOST_DEPLETE" && !job.deplete },
   { label: "Consenso", processes: ["IVAR_VARIANTS", "ANNOTATE_AA", "MIXED_SITES", "IVAR_CONSENSUS", "CONSENSUS_QC", "READ_STATS"] },
   { label: "Classificação", processes: ["NEXTCLADE_DATASET_GET", "NEXTCLADE_RUN", "NEXTCLADE_SUMMARY", "BLAST_DB_PREP", "BLASTN_ID", "BLAST_SUMMARY"], optional: (name: string, job: ApiJob) => name.startsWith("NEXTCLADE") ? !job.nextclade : name.startsWith("BLAST") && !job.blast },
-  { label: "Relatórios", processes: ["CAT_CONSENSUS", "MULTIQC", "METADATA_XLSX", "DASHBOARD"], optional: (name: string, job: ApiJob) => name === "METADATA_XLSX" && !job.metadata },
+  { label: "Relatórios", processes: ["CAT_CONSENSUS", "MULTIQC", "METADATA_XLSX", "GISAID_SUBMISSION", "DASHBOARD"], optional: (name: string, job: ApiJob) => ["METADATA_XLSX", "GISAID_SUBMISSION"].includes(name) && !job.metadata },
 ] as const;
 
 const knownProcessNames = Array.from(new Set(stageDefinitions.flatMap(definition => definition.processes)));
@@ -324,7 +324,7 @@ export default function Home() {
       <div className="brand"><div className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></div><div><strong>MK Viral</strong><span>Assembly</span></div></div>
       <div className="workspace-label">PLATAFORMA LOCAL</div>
       <nav aria-label="Navegação principal">{nav.map(item => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}{item.id === "runs" && runs.filter(run => ["Executando", "Na fila"].includes(run.status)).length > 0 && <em>{runs.filter(run => ["Executando", "Na fila"].includes(run.status)).length}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><button><span className="nav-icon">?</span>Documentação</button><button><span className="nav-icon">⚙</span>Configurações</button><div className={`local-card ${backendOnline ? "" : "offline"}`}><span className="pulse-dot"/><div><strong>Ambiente local</strong><small>{backendOnline ? "Serviço local · operacional" : "API local · desconectada"}</small></div></div><div className="version">MK-Viral-Assembly <span>v1.2.1</span></div></div>
+      <div className="sidebar-bottom"><button><span className="nav-icon">?</span>Documentação</button><button><span className="nav-icon">⚙</span>Configurações</button><div className={`local-card ${backendOnline ? "" : "offline"}`}><span className="pulse-dot"/><div><strong>Ambiente local</strong><small>{backendOnline ? "Serviço local · operacional" : "API local · desconectada"}</small></div></div><div className="version">MK-Viral-Assembly <span>v1.2.2</span></div></div>
     </aside>
     <main>
       <header className="topbar"><div><p>MK-VIRAL-ASSEMBLY</p><h1>{titles[view][0]}</h1><span>{titles[view][1]}</span></div><div className="machine"><b>MK</b><span><strong>Usuário local</strong><small>Este computador</small></span></div></header>
@@ -365,7 +365,7 @@ export default function Home() {
                     </div>}
                   </section>
                 </>}
-                <PathField label="Metadados" value={metadata} setValue={setMetadata} picker="metadata" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione o arquivo de metadados"/>
+                <PathField label="Metadados" value={metadata} setValue={setMetadata} picker="metadata" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione os metadados em CSV ou TSV"/>
                 <PathField label="Diretório de resultados" value={outdir} setValue={setOutdir} picker="outdir" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione onde salvar os resultados"/>
               </div>
             </article>            <article className="panel form-panel"><PanelHeading number="02" title="Organismo e ambiente" text={inputMode === "single" ? "Escolha um preset e o mecanismo de execução." : "Os vírus e as referências serão lidos do samplesheet."}/>
@@ -543,6 +543,7 @@ const resultCards: Record<string, { description:string; type:string; action:stri
   dashboard: { description:"Visão interativa da execução, qualidade e variantes.", type:"HTML", action:"Abrir dashboard" },
   consensus: { description:"FASTA individual e multifasta produzidos pelo pipeline.", type:"FASTA", action:"Baixar sequências" },
   metadata: { description:"Planilha consolidada gerada quando metadados são informados.", type:"XLSX", action:"Baixar planilha" },
+  gisaid: { description:"Planilha (.xls) e FASTA renomeado para envio em lote ao GISAID, gerados quando os dados institucionais são informados.", type:"GISAID", action:"Baixar submissão GISAID" },
   quality: { description:"Relatório MultiQC produzido pela execução.", type:"HTML", action:"Abrir relatório" },
   variants: { description:"Arquivos TSV de variantes por amostra.", type:"TSV", action:"Baixar variantes" },
   taxonomy: { description:"Visualização Krona da classificação taxonômica.", type:"HTML", action:"Explorar Krona" },

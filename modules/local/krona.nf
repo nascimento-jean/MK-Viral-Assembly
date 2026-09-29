@@ -3,7 +3,12 @@ process KRONA {
     label 'process_single'
 
     conda "bioconda::krona=2.8.1"
-    container "quay.io/biocontainers/krona:2.8.1--pl5321hdfd78af_1"
+    // Singularity/Apptainer can consume the pre-built SIF directly. This avoids
+    // converting the Quay OCI image, which fails with older Singularity clients
+    // reporting that quay.io looks like a Docker V1 registry.
+    container "${ workflow.containerEngine == 'singularity' ?
+        'https://depot.galaxyproject.org/singularity/krona:2.8.1--pl5321hdfd78af_1' :
+        'quay.io/biocontainers/krona:2.8.1--pl5321hdfd78af_1' }"
 
     input:
     tuple val(vdir), path(krona_texts, stageAs: "krona_txt/*")

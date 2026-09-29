@@ -3,7 +3,7 @@ process FASTQC {
     label 'process_low'
 
     conda "bioconda::fastqc=0.12.1"
-    container "quay.io/biocontainers/fastqc:0.12.1--hdfd78af_0"
+    container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/fastqc:0.12.1--hdfd78af_0' : 'quay.io/biocontainers/fastqc:0.12.1--hdfd78af_0' }"
 
     input:
     tuple val(meta), path(reads)
