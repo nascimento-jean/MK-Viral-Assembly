@@ -32,8 +32,8 @@ Windows 10 version 2004 or newer, or Windows 11, is required.
 
 ### Install
 
-1. Open the [latest MK-Viral-Assembly release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Download `MK-Viral-Assembly-Setup.exe`. The `.sha256` file is optional and is only used to verify download integrity.
+1. [Download `MK-Viral-Assembly-Setup.exe` directly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest/download/MK-Viral-Assembly-Setup.exe).
+2. The optional [`.sha256` verification file](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest/download/MK-Viral-Assembly-Setup.exe.sha256) is only needed to verify download integrity.
 3. Optionally verify the download in PowerShell:
 
    ```powershell
@@ -70,8 +70,8 @@ The desktop package supports Ubuntu 22.04 and 24.04 on x86-64/AMD64 computers.
 
 ### Install with the graphical application center
 
-1. Open the [latest MK-Viral-Assembly release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Download `MK-Viral-Assembly-WebTool_1.2.3_amd64.deb`. Its `.sha256` file is optional.
+1. [Download `MK-Viral-Assembly-WebTool_1.2.4_amd64.deb` directly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.4/MK-Viral-Assembly-WebTool_1.2.4_amd64.deb).
+2. The matching [`.sha256` verification file](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.4/MK-Viral-Assembly-WebTool_1.2.4_amd64.deb.sha256) is optional.
 3. Open the downloaded `.deb` file with **App Center** or **Software Install**.
 4. Select **Install** and enter your Ubuntu password.
 5. Open the applications menu, search for **MK-Viral-Assembly**, and start it.
@@ -85,17 +85,17 @@ If the graphical application center does not open the package, run:
 
 ```bash
 cd ~/Downloads
-sha256sum -c MK-Viral-Assembly-WebTool_1.2.3_amd64.deb.sha256
-sudo apt install ./MK-Viral-Assembly-WebTool_1.2.3_amd64.deb
+sha256sum -c MK-Viral-Assembly-WebTool_1.2.4_amd64.deb.sha256
+sudo apt install ./MK-Viral-Assembly-WebTool_1.2.4_amd64.deb
 ```
 
 Then open **MK-Viral-Assembly** from the applications menu. The `apt install ./...` command also installs the graphical and system dependencies required by the application.
 
-If version 1.2.3 is already installed and you need to replace an earlier edition of the same package file, run:
+If version 1.2.4 is already installed and you need to replace an earlier edition of the same package file, run:
 
 ```bash
 cd ~/Downloads
-sudo apt install --reinstall ./MK-Viral-Assembly-WebTool_1.2.3_amd64.deb
+sudo apt install --reinstall ./MK-Viral-Assembly-WebTool_1.2.4_amd64.deb
 ```
 
 The package installs only a desktop launcher, icon and bootstrap script under system directories. On first launch, the application creates its isolated runtime in your home directory:
@@ -161,5 +161,5 @@ sudo apt remove mk-viral-assembly-webtool
 - **Folder picker opens behind the application:** update to the latest release. The current launchers request native dialogs in the foreground.
 - **Ubuntu package reports an unsupported architecture:** the current package supports AMD64/x86-64, not ARM64.
 - **WebTool does not open on Ubuntu:** confirm that the `.deb` was installed with `apt`, run `mk-viral-assembly --diagnose`, and inspect `~/.local/state/mk-viral-assembly/launcher.log` and `webtool-service.log`.
-- **Version 1.2.0 still says setup is running after completion:** install version 1.2.3 or newer. Sign out of Ubuntu and sign in once to stop the old process, then open the application once.
+- **Version 1.2.0 still says setup is running after completion:** install version 1.2.4 or newer. Sign out of Ubuntu and sign in once to stop the old process, then open the application once.
 - **Insufficient storage:** FASTQs, Nextflow work directories and databases are usually the largest items.

@@ -41,18 +41,23 @@ The graphical WebTool lets Windows and Ubuntu users configure and run MK-Viral-A
 
 ### Windows 10/11
 
-1. Open the [latest release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Download and run `MK-Viral-Assembly-Setup.exe`.
+1. [Download `MK-Viral-Assembly-Setup.exe` directly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest/download/MK-Viral-Assembly-Setup.exe).
+2. Open the downloaded file and complete the installer.
 3. Follow the first-launch preparation. A Windows restart may be required when WSL 2 is enabled for the first time.
 
 ### Ubuntu 22.04/24.04
 
-1. Open the [latest release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Download `MK-Viral-Assembly-WebTool_1.2.3_amd64.deb`.
-3. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.3_amd64.deb`.
-4. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation. On Ubuntu, the WebTool opens in its own application window without browser controls.
+1. [Download `MK-Viral-Assembly-WebTool_1.2.4_amd64.deb` directly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.4/MK-Viral-Assembly-WebTool_1.2.4_amd64.deb).
+2. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.4_amd64.deb`.
+3. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation. On Ubuntu, the WebTool opens in its own application window without browser controls.
 
 Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md) or the [Portuguese guide](docs/INSTALACAO_WEBTOOL_PT_BR.md) for requirements, checksum verification, database behavior and troubleshooting.
+
+## Version 1.2.4 highlights
+
+- the Windows picker now opens through a topmost native owner without runtime C# compilation or an encoded PowerShell command;
+- reinstalling a newer Windows launcher now updates its managed WSL source while preserving local history, results and downloaded databases;
+- installer links in the setup guides open the release assets directly.
 
 ## Version 1.2.3 highlights
 

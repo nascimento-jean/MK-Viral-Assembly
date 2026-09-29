@@ -32,8 +32,8 @@ A primeira abertura pode demorar vários minutos, pois o aplicativo baixa a vers
 
 ### Instalar
 
-1. Abra a [versão mais recente do MK-Viral-Assembly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Baixe `MK-Viral-Assembly-Setup.exe`. O arquivo `.sha256` é opcional e serve apenas para verificar a integridade do download.
+1. [Clique aqui para baixar diretamente `MK-Viral-Assembly-Setup.exe`](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest/download/MK-Viral-Assembly-Setup.exe).
+2. O [arquivo de verificação `.sha256`](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest/download/MK-Viral-Assembly-Setup.exe.sha256) é opcional e serve apenas para verificar a integridade do download.
 3. Opcionalmente, confira o download no PowerShell:
 
    ```powershell
@@ -70,8 +70,8 @@ O pacote gráfico é compatível com Ubuntu 22.04 e 24.04 em computadores x86-64
 
 ### Instalar pela Central de Aplicativos
 
-1. Abra a [versão mais recente do MK-Viral-Assembly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Baixe `MK-Viral-Assembly-WebTool_1.2.3_amd64.deb`. O arquivo `.sha256` correspondente é opcional.
+1. [Clique aqui para baixar diretamente `MK-Viral-Assembly-WebTool_1.2.4_amd64.deb`](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.4/MK-Viral-Assembly-WebTool_1.2.4_amd64.deb).
+2. O [arquivo de verificação `.sha256`](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.4/MK-Viral-Assembly-WebTool_1.2.4_amd64.deb.sha256) é opcional.
 3. Abra o arquivo `.deb` com a **Central de Aplicativos** ou **Instalação de software**.
 4. Clique em **Instalar** e informe a senha do Ubuntu.
 5. Abra o menu de aplicativos, procure **MK-Viral-Assembly** e execute-o.
@@ -85,17 +85,17 @@ Se a Central de Aplicativos não abrir o pacote, execute:
 
 ```bash
 cd ~/Downloads
-sha256sum -c MK-Viral-Assembly-WebTool_1.2.3_amd64.deb.sha256
-sudo apt install ./MK-Viral-Assembly-WebTool_1.2.3_amd64.deb
+sha256sum -c MK-Viral-Assembly-WebTool_1.2.4_amd64.deb.sha256
+sudo apt install ./MK-Viral-Assembly-WebTool_1.2.4_amd64.deb
 ```
 
 Depois, abra **MK-Viral-Assembly** pelo menu de aplicativos. O comando `apt install ./...` também instala as dependências gráficas e de sistema necessárias ao aplicativo.
 
-Se a versão 1.2.3 já estiver instalada e você precisar substituir uma edição anterior do mesmo arquivo, use:
+Se a versão 1.2.4 já estiver instalada e você precisar substituir uma edição anterior do mesmo arquivo, use:
 
 ```bash
 cd ~/Downloads
-sudo apt install --reinstall ./MK-Viral-Assembly-WebTool_1.2.3_amd64.deb
+sudo apt install --reinstall ./MK-Viral-Assembly-WebTool_1.2.4_amd64.deb
 ```
 
 O pacote instala somente o inicializador, o ícone e o script de preparação nos diretórios do sistema. Na primeira abertura, o aplicativo cria o ambiente isolado dentro da pasta pessoal:
@@ -161,5 +161,5 @@ sudo apt remove mk-viral-assembly-webtool
 - **A janela de seleção aparece atrás do aplicativo:** atualize para a versão mais recente. Os inicializadores atuais solicitam que os diálogos nativos sejam exibidos em primeiro plano.
 - **O Ubuntu informa arquitetura incompatível:** o pacote atual é para AMD64/x86-64, não ARM64.
 - **A WebTool não abre no Ubuntu:** confirme que o `.deb` foi instalado com `apt`, execute `mk-viral-assembly --diagnose` e consulte `~/.local/state/mk-viral-assembly/launcher.log` e `webtool-service.log`.
-- **A versão 1.2.0 continua dizendo que está sendo preparada após concluir:** instale a versão 1.2.3 ou mais recente. Termine a sessão do Ubuntu e entre novamente uma vez para encerrar o processo antigo; depois abra o aplicativo uma única vez.
+- **A versão 1.2.0 continua dizendo que está sendo preparada após concluir:** instale a versão 1.2.4 ou mais recente. Termine a sessão do Ubuntu e entre novamente uma vez para encerrar o processo antigo; depois abra o aplicativo uma única vez.
 - **Falta de espaço:** FASTQs, diretórios de trabalho do Nextflow e bancos geralmente ocupam a maior parte do disco.

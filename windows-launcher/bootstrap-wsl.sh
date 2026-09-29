@@ -23,10 +23,23 @@ fi
 command -v python3 >/dev/null || fail "Python 3 is required in the selected WSL distribution."
 command -v tar >/dev/null || fail "The tar utility is required in the selected WSL distribution."
 
+MARKER="$INSTALL_DIR/.mkva-managed-install"
+INSTALLED_RELEASE=""
+if [[ -f "$MARKER" ]]; then
+  INSTALLED_RELEASE="$(sed -n 's/^release=//p' "$MARKER" | head -n 1)"
+fi
+
+NEEDS_SOURCE=0
 if [[ ! -f "$INSTALL_DIR/main.nf" || ! -x "$INSTALL_DIR/webtool/start-local.sh" ]]; then
-  if [[ -e "$INSTALL_DIR" ]]; then
-    fail "$INSTALL_DIR already exists but is not a complete MK-Viral-Assembly installation. Move or rename it and retry."
+  if [[ -e "$INSTALL_DIR" && ! -f "$MARKER" ]]; then
+    fail "$INSTALL_DIR already exists but is not a managed MK-Viral-Assembly installation. Move or rename it and retry."
   fi
+  NEEDS_SOURCE=1
+elif [[ -f "$MARKER" && "$INSTALLED_RELEASE" != "$RELEASE_REF" ]]; then
+  NEEDS_SOURCE=1
+fi
+
+if [[ "$NEEDS_SOURCE" == "1" ]]; then
   status "Downloading MK-Viral-Assembly ${RELEASE_REF}..."
   ARCHIVE="$WORK_DIR/mkva.tar.gz"
   if [[ "$RELEASE_REF" == v* ]]; then
@@ -34,19 +47,30 @@ if [[ ! -f "$INSTALL_DIR/main.nf" || ! -x "$INSTALL_DIR/webtool/start-local.sh" 
   else
     DOWNLOAD_URL="${REPOSITORY}/archive/refs/heads/${RELEASE_REF}.tar.gz"
   fi
-  python3 - "$DOWNLOAD_URL" "$ARCHIVE" <<'PY'
+  python3 - "$DOWNLOAD_URL" "$ARCHIVE" <<'PY_DOWNLOAD'
 import pathlib, sys, urllib.request
 url, target = sys.argv[1:]
 request = urllib.request.Request(url, headers={"User-Agent": "MK-Viral-Assembly-Installer"})
 with urllib.request.urlopen(request, timeout=120) as response, pathlib.Path(target).open("wb") as output:
     while block := response.read(1024 * 1024):
         output.write(block)
-PY
+PY_DOWNLOAD
   mkdir -p "$WORK_DIR/source"
   tar -xzf "$ARCHIVE" -C "$WORK_DIR/source" --strip-components=1
   [[ -f "$WORK_DIR/source/main.nf" ]] || fail "The downloaded release is not a valid MK-Viral-Assembly package."
   chmod +x "$WORK_DIR/source/webtool/start-local.sh" "$WORK_DIR/source/webtool/verify-install.sh"
-  mv "$WORK_DIR/source" "$INSTALL_DIR"
+  if [[ -e "$INSTALL_DIR" ]]; then
+    status "Updating the managed MK-Viral-Assembly installation..."
+    cp -a "$WORK_DIR/source/." "$INSTALL_DIR/"
+    rm -f "$INSTALL_DIR/webtool/native_picker.cs"
+  else
+    mv "$WORK_DIR/source" "$INSTALL_DIR"
+  fi
+fi
+
+if [[ "${MKVA_BOOTSTRAP_SOURCE_TEST:-}" == "1" ]]; then
+  printf 'MKVA_TARGET=%s\n' "$INSTALL_DIR"
+  exit 0
 fi
 
 CONDA_EXE=""

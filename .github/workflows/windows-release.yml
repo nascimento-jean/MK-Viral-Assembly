@@ -30,7 +30,9 @@ jobs:
           node --test tests/rendered-html.test.mjs
           PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Validate Windows bootstrap without downloads
-        run: MKVA_BOOTSTRAP_TEST=1 bash windows-launcher/bootstrap-wsl.sh
+        run: |
+          MKVA_BOOTSTRAP_TEST=1 bash windows-launcher/bootstrap-wsl.sh
+          bash windows-launcher/tests/test-bootstrap-update.sh
       - name: Validate Ubuntu launcher without downloads
         run: bash linux-launcher/tests/test-linux-launcher.sh
       - name: Validate pipeline Python tools

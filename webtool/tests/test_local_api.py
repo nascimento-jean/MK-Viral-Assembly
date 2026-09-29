@@ -211,14 +211,15 @@ class PathConversionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "não permitido"):
             local_api.pick_local_path({"picker": "arbitrary"})
 
-    def test_picker_uses_native_dialog_foreground_helper(self):
+    def test_picker_uses_topmost_native_owner_without_dynamic_compilation(self):
         source = Path(local_api.__file__).read_text(encoding="utf-8")
-        helper = (Path(local_api.__file__).parent / "native_picker.cs").read_text(encoding="utf-8-sig")
-        self.assertIn("FindOwner", source)
-        self.assertIn("EnumThreadWindows", helper)
-        self.assertIn("SetWindowPos", helper)
-        self.assertEqual(source.count("[MkvaNativePicker]::Show($dialog, $owner)"), 3)
-        self.assertNotIn("$owner.TopMost", source)
+        self.assertIn("$owner = New-Object System.Windows.Forms.Form", source)
+        self.assertIn("$owner.TopMost = $true", source)
+        self.assertIn("$owner.Opacity = 0", source)
+        self.assertEqual(source.count("$dialog.ShowDialog($owner)"), 3)
+        self.assertNotIn("Add-Type -ReferencedAssemblies", source)
+        self.assertNotIn("-EncodedCommand", source)
+        self.assertIn('"-Command", "-"', source)
         self.assertEqual(local_api.PICKER_CONFIG["samplesheet_output"]["mode"], "save")
         self.assertIn("SaveFileDialog", source)
 

@@ -44,7 +44,7 @@ internal sealed class LauncherEngine : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MK-Viral-Assembly");
 
-    private const string ReleaseRef = "v1.2.3";
+    private const string ReleaseRef = "v1.2.4";
     public event Action<string>? Message;
     public string LogPath => Path.Combine(_dataDir, "launcher.log");
     public WslTarget? Target { get; private set; }
@@ -83,14 +83,34 @@ internal sealed class LauncherEngine : IDisposable
 
     public async Task<WslTarget> DetectOrInstallAsync(CancellationToken cancellationToken = default)
     {
+        WslTarget target;
         try
         {
-            return await DetectAsync(cancellationToken);
+            target = await DetectAsync(cancellationToken);
         }
         catch (InvalidOperationException)
         {
             return await InstallEnvironmentAsync(cancellationToken);
         }
+
+        await UpdateManagedEnvironmentAsync(target, cancellationToken);
+        return target;
+    }
+
+    private async Task UpdateManagedEnvironmentAsync(WslTarget target, CancellationToken cancellationToken)
+    {
+        var project = ShellQuote(target.ProjectPath);
+        var current = await RunWslCaptureAsync(
+            target.Distro,
+            $"if [ -f {project}/.mkva-managed-install ]; then sed -n 's/^release=//p' {project}/.mkva-managed-install | head -n 1; fi",
+            cancellationToken);
+        if (current.ExitCode != 0) return;
+
+        var installedRef = current.Output.Trim();
+        if (installedRef.Length == 0 || installedRef.Equals(ReleaseRef, StringComparison.Ordinal)) return;
+
+        Message?.Invoke($"Atualizando a instalação gerenciada de {installedRef} para {ReleaseRef}...");
+        await RunBootstrapAsync(target.Distro, target.ProjectPath, cancellationToken);
     }
 
     private async Task<WslTarget> InstallEnvironmentAsync(CancellationToken cancellationToken)
@@ -131,14 +151,30 @@ internal sealed class LauncherEngine : IDisposable
             await TerminateDistroAsync(distro, cancellationToken);
         }
 
+        Message?.Invoke("Baixando e configurando a WebTool. Isso pode levar vários minutos...");
+        var targetPath = await RunBootstrapAsync(distro, null, cancellationToken);
+
+        var target = new WslTarget(distro, targetPath);
+        SaveConfiguration(target);
+        Target = target;
+        return target;
+    }
+
+    private async Task<string> RunBootstrapAsync(
+        string distro,
+        string? installDir,
+        CancellationToken cancellationToken)
+    {
         var bootstrapPath = Path.Combine(AppContext.BaseDirectory, "bootstrap-wsl.sh");
         if (!File.Exists(bootstrapPath))
             throw new InvalidOperationException("O instalador está incompleto: bootstrap-wsl.sh não foi encontrado.");
 
-        Message?.Invoke("Baixando e configurando a WebTool. Isso pode levar vários minutos...");
         var script = await File.ReadAllTextAsync(bootstrapPath, cancellationToken);
         var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(script));
-        var shellCommand = $"export MKVA_RELEASE_REF={ShellQuote(ReleaseRef)}; printf '%s' '{encoded}' | base64 -d | bash";
+        var installExport = string.IsNullOrWhiteSpace(installDir)
+            ? string.Empty
+            : $" export MKVA_INSTALL_DIR={ShellQuote(installDir)};";
+        var shellCommand = $"export MKVA_RELEASE_REF={ShellQuote(ReleaseRef)};{installExport} printf '%s' '{encoded}' | base64 -d | bash";
         var result = await RunWslStreamingAsync(distro, shellCommand, cancellationToken);
         AppendLog(result.Output);
         if (result.ExitCode != 0)
@@ -153,11 +189,7 @@ internal sealed class LauncherEngine : IDisposable
             .Substring("MKVA_TARGET=".Length).Trim();
         if (string.IsNullOrWhiteSpace(targetPath))
             throw new InvalidOperationException("A instalação terminou sem informar o diretório do projeto.");
-
-        var target = new WslTarget(distro, targetPath);
-        SaveConfiguration(target);
-        Target = target;
-        return target;
+        return targetPath;
     }
 
     private static async Task InstallWslAsync(CancellationToken cancellationToken)

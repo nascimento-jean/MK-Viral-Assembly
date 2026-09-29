@@ -206,14 +206,24 @@ def pick_local_path(payload: dict[str, Any]) -> dict[str, Any]:
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
-Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition ({_powershell_value((WEBTOOL_DIR / "native_picker.cs").read_text(encoding="utf-8-sig"))})
 $mode = {_powershell_value(mode)}
 $title = {_powershell_value(title)}
 $initial = {_powershell_value(initial)}
 $filter = {_powershell_value(file_filter)}
 $defaultName = {_powershell_value(default_name)}
-$owner = [MkvaNativePicker]::FindOwner()
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedToolWindow
+$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+$owner.Left = -32000
+$owner.Top = -32000
+$owner.Opacity = 0
+$dialog = $null
 try {{
+    $owner.Show()
+    [System.Windows.Forms.Application]::DoEvents()
+    $null = $owner.Activate()
     if ($mode -eq 'folder') {{
         $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
         $dialog.Description = $title
@@ -222,7 +232,7 @@ try {{
             if (Test-Path -LiteralPath $initial -PathType Leaf) {{ $dialog.SelectedPath = Split-Path -Parent $initial }}
             else {{ $dialog.SelectedPath = $initial }}
         }}
-        if ([MkvaNativePicker]::Show($dialog, $owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath))) }}
+        if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath))) }}
     }} elseif ($mode -eq 'save') {{
         $dialog = New-Object System.Windows.Forms.SaveFileDialog
         $dialog.Title = $title
@@ -238,7 +248,7 @@ try {{
                 $dialog.FileName = Split-Path -Leaf $initial
             }}
         }} elseif ($defaultName) {{ $dialog.FileName = $defaultName }}
-        if ([MkvaNativePicker]::Show($dialog, $owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.FileName))) }}
+        if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.FileName))) }}
     }} else {{
         $dialog = New-Object System.Windows.Forms.OpenFileDialog
         $dialog.Title = $title
@@ -251,20 +261,25 @@ try {{
                 $dialog.FileName = Split-Path -Leaf $initial
             }} elseif (Test-Path -LiteralPath $initial -PathType Container) {{ $dialog.InitialDirectory = $initial }}
         }}
-        if ([MkvaNativePicker]::Show($dialog, $owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.FileName))) }}
+        if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.FileName))) }}
     }}
 }} finally {{
     if ($null -ne $dialog) {{ $dialog.Dispose() }}
+    if ($null -ne $owner) {{ $owner.Close(); $owner.Dispose() }}
 }}
 """
-    encoded_command = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-    completed = subprocess.run(
-        [str(WINDOWS_POWERSHELL), "-NoProfile", "-STA", "-EncodedCommand", encoded_command],
-        capture_output=True, text=False, timeout=900, check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [str(WINDOWS_POWERSHELL), "-NoProfile", "-NonInteractive", "-STA", "-Command", "-"],
+            input=script.encode("ascii"), capture_output=True, text=False, timeout=900, check=False,
+        )
+    except OSError as exc:
+        raise ValueError("Não foi possível iniciar o seletor nativo do Windows") from exc
     selected_token = completed.stdout.strip()
     if completed.returncode != 0:
-        raise ValueError("Não foi possível abrir o seletor nativo do Windows")
+        detail = completed.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        reason = detail[-1].strip() if detail else f"código {completed.returncode}"
+        raise ValueError(f"Não foi possível abrir o seletor nativo do Windows ({reason})")
     if not selected_token:
         return {"cancelled": True, "path": ""}
     try:

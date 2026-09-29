@@ -2,7 +2,6 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
-Add-Type -ReferencedAssemblies System.Windows.Forms -Path (Join-Path $PSScriptRoot '../native_picker.cs')
 Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -37,12 +36,29 @@ public static class PickerProbe {
 }
 "@
 foreach ($kind in @('FolderBrowserDialog', 'OpenFileDialog', 'SaveFileDialog')) {
+    $owner = New-Object System.Windows.Forms.Form
+    $owner.TopMost = $true
+    $owner.ShowInTaskbar = $false
+    $owner.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedToolWindow
+    $owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+    $owner.Left = -32000
+    $owner.Top = -32000
+    $owner.Opacity = 0
+    $owner.Show()
+    [System.Windows.Forms.Application]::DoEvents()
+    $null = $owner.Activate()
     $dialog = New-Object "System.Windows.Forms.$kind"
     $probe = [PickerProbe]::Start()
     try {
-        $result = [MkvaNativePicker]::Show($dialog, $null)
+        $result = $dialog.ShowDialog($owner)
         if (-not [PickerProbe]::SawTopmost) { throw "$kind did not appear on top" }
         if ($result -ne [System.Windows.Forms.DialogResult]::Cancel) { throw "$kind did not cancel" }
         Write-Output "$kind : topmost=$([PickerProbe]::SawTopmost), foreground=$([PickerProbe]::SawForeground), result=$result"
-    } finally { $probe.Stop(); $probe.Dispose(); $dialog.Dispose() }
+    } finally {
+        $probe.Stop()
+        $probe.Dispose()
+        $dialog.Dispose()
+        $owner.Close()
+        $owner.Dispose()
+    }
 }
