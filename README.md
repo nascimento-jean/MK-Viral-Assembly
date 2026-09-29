@@ -54,6 +54,16 @@ The graphical WebTool lets Windows and Ubuntu users configure and run MK-Viral-A
 
 Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md) or the [Portuguese guide](docs/INSTALACAO_WEBTOOL_PT_BR.md) for requirements, checksum verification, database behavior and troubleshooting.
 
+## Version 1.2.3 highlights
+
+- metadata input now accepts XLSX, CSV, and TSV;
+- ready-to-fill metadata templates are included in all three formats and can also be downloaded from the installed WebTool;
+- Dengue serotype and RSV subtype are inferred from unambiguous Nextclade/BLAST results when available;
+- declared metadata are cross-checked against analytical calls, and conflicts are reported instead of being silently submitted;
+- GISAID output now fills the mandatory Dengue `Serotype` and RSV `Subtype` fields;
+- RSV keeps the normalized subtype (`A`/`B`) separately from a detailed genotype/lineage such as `A.D.1`;
+- the Windows and Ubuntu installers remain the recommended route for users without command-line experience.
+
 ## What it does
 
 ```
@@ -423,10 +433,19 @@ A single-virus run just yields one such `<virus>/` folder plus the global
 
 Start from one of the repository templates: [`template_metadata.xlsx`](assets/template_metadata.xlsx),
 [`template_metadata.csv`](assets/template_metadata.csv), or [`template_metadata.tsv`](assets/template_metadata.tsv).
-The installed WebTool also provides these files beside the **Metadados** field. Passing any of these formats to
-`--metadata` writes `metadata_<virus>.xlsx`, one row per PASS/WARN sample, merging epidemiological columns with
+The installed WebTool also provides these files beside the **Metadados** field. Use the template as follows:
+
+1. Download one format and open it in Excel, LibreOffice, or a text editor appropriate for CSV/TSV.
+2. Keep the first-row column names unchanged and add one row per sample.
+3. Fill `Código Amostra` exactly as it appears in the FASTQ filename or samplesheet.
+4. Use `YYYY-MM-DD` for `Data Coleta`; the XLSX reader also converts normal Excel date cells.
+5. For Dengue, enter `Sorotipo` as `DENV1`–`DENV4` when already known. For RSV/VSR, enter `Subtipo` as `A` or `B` and reserve `Genótipo` for the detailed lineage.
+6. To generate a GISAID bundle, fill `Submissor`, `Lab_Origem`, `Lab_Submissão`, `Endereço`, `Autores`, and `Código da Região` in addition to the sample and collection fields.
+7. Select the completed file in the WebTool, or pass it to the CLI with `--metadata /path/to/template_metadata.xlsx`.
+
+The pipeline writes `metadata_<virus>.xlsx`, one row per PASS/WARN sample, merging epidemiological columns with
 pipeline-derived read counts, depth, coverage and typing results. `Código Amostra` is the only strictly required column
-for the consolidated workbook; keep the supplied column names unchanged.
+for the consolidated workbook, but the additional fields listed above are required for automatic GISAID output.
 
 For Dengue, `Sorotipo` is normalized to `DENV1`–`DENV4`. For RSV/VSR, `Subtipo` is normalized to `A` or `B`, while a
 detailed lineage such as `A.D.1` remains in `Genótipo`. The pipeline prefers an unambiguous analytical call from
