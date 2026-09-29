@@ -48,8 +48,8 @@ The graphical WebTool lets Windows and Ubuntu users configure and run MK-Viral-A
 ### Ubuntu 22.04/24.04
 
 1. Open the [latest release](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Download `MK-Viral-Assembly-WebTool_1.2.2_amd64.deb`.
-3. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.2_amd64.deb`.
+2. Download `MK-Viral-Assembly-WebTool_1.2.3_amd64.deb`.
+3. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.3_amd64.deb`.
 4. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation. On Ubuntu, the WebTool opens in its own application window without browser controls.
 
 Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md) or the [Portuguese guide](docs/INSTALACAO_WEBTOOL_PT_BR.md) for requirements, checksum verification, database behavior and troubleshooting.
@@ -370,7 +370,7 @@ See [PARAMETERS.md](PARAMETERS.md) for the complete parameter guide and
 | `--skip_combine` | `false` | Skip run-level combined multi-FASTA(s) |
 | `--combine_min_status` | `WARN` | Lowest QC status kept in the combined FASTA(s): `PASS`\|`WARN`\|`FAIL` (default drops FAIL) |
 | `--run_name`     | –       | Run label shown in the dashboard header (e.g. sequencing lot) |
-| `--metadata`     | –       | Optional CSV/TSV of per-sample metadata → writes `metadata_<virus>.xlsx`. Include `Submissor`, `Lab_Origem`, `Lab_Submissão`, `Endereço`, `Autores` and `Código da Região` to also auto-generate a GISAID bulk-upload spreadsheet + renamed FASTA (SARS-CoV-2, Dengue, Chikungunya, Oropouche, RSV/VSR) — see [Outputs](#outputs) |
+| `--metadata`     | –       | Optional XLSX/CSV/TSV of per-sample metadata → writes `metadata_<virus>.xlsx`. Include `Submissor`, `Lab_Origem`, `Lab_Submissão`, `Endereço`, `Autores` and `Código da Região` to also auto-generate a GISAID bulk-upload spreadsheet + renamed FASTA (SARS-CoV-2, Dengue, Chikungunya, Oropouche, RSV/VSR) — see [Outputs](#outputs) |
 | `--dash_pass`    | `0.90`  | Consensus completeness ≥ this → **PASS** badge |
 | `--dash_warn`    | `0.70`  | Completeness ≥ this (and < pass) → **WARN**; below → **FAIL** |
 
@@ -421,15 +421,19 @@ A single-virus run just yields one such `<virus>/` folder plus the global
 
 ### Metadata workbook and GISAID submission
 
-Passing `--metadata <table.csv>` (CSV or TSV text; XLSX is not accepted as input) writes `metadata_<virus>.xlsx`, one
-row per PASS/WARN sample, merging your table's epidemiological columns
-(`Código Amostra`, `CT`, `Município`, `UF município solicitante`, `Data Coleta`,
-`Tipo Amostra`, `Idade`, `Tipo Idade`, `Sexo`, optional `Tecnologia de Sequenciamento`, and optional `Sorotipo`/`Genótipo`)
-with pipeline-derived ones (reads, mean depth, coverage breadth, lineage/genotype).
-`Código Amostra` is the only strictly required column for the consolidated workbook;
-everything else is written blank if absent. For GISAID, provide `Sorotipo` as
-`DENV1`–`DENV4` for Dengue and `Genótipo` as `A` or `B` for RSV/VSR when the
-corresponding value is not available from the pipeline typing step.
+Start from one of the repository templates: [`template_metadata.xlsx`](assets/template_metadata.xlsx),
+[`template_metadata.csv`](assets/template_metadata.csv), or [`template_metadata.tsv`](assets/template_metadata.tsv).
+The installed WebTool also provides these files beside the **Metadados** field. Passing any of these formats to
+`--metadata` writes `metadata_<virus>.xlsx`, one row per PASS/WARN sample, merging epidemiological columns with
+pipeline-derived read counts, depth, coverage and typing results. `Código Amostra` is the only strictly required column
+for the consolidated workbook; keep the supplied column names unchanged.
+
+For Dengue, `Sorotipo` is normalized to `DENV1`–`DENV4`. For RSV/VSR, `Subtipo` is normalized to `A` or `B`, while a
+detailed lineage such as `A.D.1` remains in `Genótipo`. The pipeline prefers an unambiguous analytical call from
+Nextclade and/or BLAST, checks it against the declared metadata, and records `Origem da Tipagem`. If analytical sources
+disagree, or an analytical call disagrees with the declared value, `Alerta de Tipagem` explains the conflict and that
+sample is omitted from the automatic GISAID bundle until reviewed. When no analytical call is available, a valid
+declared value is used.
 
 Add six more columns — `Submissor`, `Lab_Origem`, `Lab_Submissão`, `Endereço`,
 `Autores`, `Código da Região` — and the pipeline additionally writes a ready-to-use

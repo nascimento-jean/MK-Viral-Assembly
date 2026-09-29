@@ -131,6 +131,30 @@ class GisaidSubmissionTests(unittest.TestCase):
                 self.assertIn(expected_field, generated_headers)
                 self.assertEqual(generated_rows[0][expected_field], expected_value)
 
+
+    def test_typing_alert_skips_gisaid_submission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            headers = self.headers + ["Alerta de Tipagem"]
+            row = [
+                "DENV2", "SAMPLE03", "2026-09-22", "Maceió", "AL", "20", "anos", "Feminino",
+                "Illumina", "submitter", "LACEN-AL", "LACEN-AL", "Maceió, AL, Brasil",
+                "Jean Nascimento", "AL", "DENV2", "", "Conflito DENV2 x DENV3",
+            ]
+            metadata_xlsx = root / "metadata.xlsx"
+            metadata_module.write_xlsx(metadata_xlsx, headers, [row])
+            fasta = root / "sample.fa"
+            fasta.write_text(">SAMPLE03\nACGT\n", encoding="utf-8")
+            completed = subprocess.run([
+                sys.executable, str(SCRIPT), "--metadata-xlsx", str(metadata_xlsx),
+                "--consensus-fasta", str(fasta), "--virus", "dengue",
+                "--templates-dir", str(TEMPLATES), "--vendor-dir", str(WHEELS),
+                "--out-xls", str(root / "out.xls"), "--out-fasta", str(root / "out.fasta"),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0)
+            self.assertFalse((root / "out.xls").exists())
+            self.assertIn("alerta de tipagem", completed.stderr)
+
     def test_rejects_missing_vendored_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

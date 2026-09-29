@@ -10,6 +10,15 @@ from unittest.mock import Mock, patch
 import local_api
 
 
+class MetadataTemplateTests(unittest.TestCase):
+    def test_all_metadata_templates_are_packaged(self):
+        self.assertEqual(set(local_api.METADATA_TEMPLATES), {"xlsx", "csv", "tsv"})
+        for path, content_type in local_api.METADATA_TEMPLATES.values():
+            self.assertTrue(path.is_file(), path)
+            self.assertGreater(path.stat().st_size, 100)
+            self.assertTrue(content_type)
+
+
 class BuildCommandTests(unittest.TestCase):
     def setUp(self):
         self.nextflow_patch = patch.object(local_api, "NEXTFLOW", Path(sys.executable))
@@ -103,7 +112,7 @@ class BuildCommandTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Dataset Nextclade é obrigatório"):
                 local_api.build_command(payload)
 
-    def test_metadata_accepts_csv_and_tsv_but_rejects_xlsx(self):
+    def test_metadata_accepts_xlsx_csv_and_tsv(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             reads = root / "reads"
@@ -115,16 +124,16 @@ class BuildCommandTests(unittest.TestCase):
                 "raw_data_dir": str(reads),
                 "reference": str(reference),
             }
-            for suffix in (".csv", ".tsv"):
+            for suffix in (".xlsx", ".csv", ".tsv"):
                 metadata = root / f"metadata{suffix}"
-                metadata.write_text("Código Amostra\nSAMPLE01\n", encoding="utf-8")
+                metadata.write_bytes(b"template")
                 command, normalized = local_api.build_command(base | {"metadata": str(metadata)})
                 self.assertIn("--metadata", command)
                 self.assertEqual(normalized["metadata"], str(metadata))
-            xlsx = root / "metadata.xlsx"
-            xlsx.write_bytes(b"not-an-xlsx")
-            with self.assertRaisesRegex(ValueError, "CSV ou TSV"):
-                local_api.build_command(base | {"metadata": str(xlsx)})
+            invalid = root / "metadata.txt"
+            invalid.write_text("Código Amostra\nSAMPLE01\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "XLSX, CSV ou TSV"):
+                local_api.build_command(base | {"metadata": str(invalid)})
 
     def test_single_allows_empty_dataset_when_nextclade_is_disabled(self):
         with tempfile.TemporaryDirectory() as directory:

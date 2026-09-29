@@ -44,6 +44,8 @@ test("keeps execution local and passes validated arguments without a shell", asy
   assert.match(page, /http:\/\/localhost:8787\/api\/health/);
   assert.ok(page.includes("http://localhost:8787/api/jobs"));
   assert.ok(page.includes("http://localhost:8787/api/samplesheet"));
+  assert.ok(page.includes("http://localhost:8787/api/metadata-template?format=xlsx"));
+  assert.ok(page.includes("Preencha uma linha por amostra"));
   assert.ok(page.includes("Criar samplesheet automaticamente"));
   assert.ok(page.includes("samplesheet_parent"));
   assert.ok(page.includes("samplesheet_output"));

@@ -148,7 +148,7 @@ def helpMessage() {
       --skip_combine   Skip run-level combined multi-FASTA(s)   [default: ${params.skip_combine}]
       --combine_min_status  Lowest QC status kept in combined FASTA: PASS|WARN|FAIL [default: ${params.combine_min_status}]
       --run_name       Label shown in the dashboard header      [default: Nextflow run name]
-      --metadata       Optional CSV/TSV metadata table; writes metadata_<virus>.xlsx.
+      --metadata       Optional XLSX/CSV/TSV metadata table; writes metadata_<virus>.xlsx.
                         Include the columns Submissor, Lab_Origem, Lab_Submissão,
                         Endereço, Autores and Código da Região to also auto-generate
                         a GISAID bulk-upload spreadsheet + renamed FASTA for
@@ -594,8 +594,9 @@ workflow {
         ch_meta_in = ch_meta_qc
             .join(ch_meta_reads, remainder: true)
             .join(ch_nextclade, remainder: true)
-            .map { vdir, qc_files, read_files, nc_file ->
-                [ vdir, qc_files ?: [], read_files ?: [], nc_file ?: [] ]
+            .join(ch_blast, remainder: true)
+            .map { vdir, qc_files, read_files, nc_file, blast_file ->
+                [ vdir, qc_files ?: [], read_files ?: [], nc_file ?: [], blast_file ?: [] ]
             }
         METADATA_XLSX (
             ch_meta_in,

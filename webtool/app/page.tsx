@@ -324,7 +324,7 @@ export default function Home() {
       <div className="brand"><div className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></div><div><strong>MK Viral</strong><span>Assembly</span></div></div>
       <div className="workspace-label">PLATAFORMA LOCAL</div>
       <nav aria-label="Navegação principal">{nav.map(item => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}{item.id === "runs" && runs.filter(run => ["Executando", "Na fila"].includes(run.status)).length > 0 && <em>{runs.filter(run => ["Executando", "Na fila"].includes(run.status)).length}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><button><span className="nav-icon">?</span>Documentação</button><button><span className="nav-icon">⚙</span>Configurações</button><div className={`local-card ${backendOnline ? "" : "offline"}`}><span className="pulse-dot"/><div><strong>Ambiente local</strong><small>{backendOnline ? "Serviço local · operacional" : "API local · desconectada"}</small></div></div><div className="version">MK-Viral-Assembly <span>v1.2.2</span></div></div>
+      <div className="sidebar-bottom"><button><span className="nav-icon">?</span>Documentação</button><button><span className="nav-icon">⚙</span>Configurações</button><div className={`local-card ${backendOnline ? "" : "offline"}`}><span className="pulse-dot"/><div><strong>Ambiente local</strong><small>{backendOnline ? "Serviço local · operacional" : "API local · desconectada"}</small></div></div><div className="version">MK-Viral-Assembly <span>v1.2.3</span></div></div>
     </aside>
     <main>
       <header className="topbar"><div><p>MK-VIRAL-ASSEMBLY</p><h1>{titles[view][0]}</h1><span>{titles[view][1]}</span></div><div className="machine"><b>MK</b><span><strong>Usuário local</strong><small>Este computador</small></span></div></header>
@@ -365,8 +365,11 @@ export default function Home() {
                     </div>}
                   </section>
                 </>}
-                <PathField label="Metadados" value={metadata} setValue={setMetadata} picker="metadata" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione os metadados em CSV ou TSV"/>
-                <PathField label="Diretório de resultados" value={outdir} setValue={setOutdir} picker="outdir" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione onde salvar os resultados"/>
+                <div className="metadata-template-block full">
+                  <PathField label="Metadados" value={metadata} setValue={setMetadata} picker="metadata" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione os metadados em XLSX, CSV ou TSV" full/>
+                  <div className="metadata-template-links"><span>Comece pelo modelo:</span><a href="http://localhost:8787/api/metadata-template?format=xlsx">XLSX</a><a href="http://localhost:8787/api/metadata-template?format=csv">CSV</a><a href="http://localhost:8787/api/metadata-template?format=tsv">TSV</a><small>Preencha uma linha por amostra sem alterar os títulos das colunas.</small></div>
+                </div>
+                <PathField label="Diretório de resultados" value={outdir} setValue={setOutdir} picker="outdir" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione onde salvar os resultados" full/>
               </div>
             </article>            <article className="panel form-panel"><PanelHeading number="02" title="Organismo e ambiente" text={inputMode === "single" ? "Escolha um preset e o mecanismo de execução." : "Os vírus e as referências serão lidos do samplesheet."}/>
               {inputMode === "single" ? <div className="virus-options">{viruses.map(v => <button type="button" key={v} className={virus === v ? "selected" : ""} onClick={() => { setVirus(v); setNextcladeDataset(nextcladeDatasetDefaults[v] ?? ""); }}><VirusBadge virus={v}/>{v}</button>)}</div> : <div className="mixed-mode-note"><span>CSV</span><div><strong>Configuração por amostra</strong><small>As colunas virus e reference do samplesheet controlam cada amostra.</small></div></div>}

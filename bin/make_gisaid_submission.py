@@ -223,7 +223,7 @@ def build_virus_name(kind, row, code, year, warnings):
             return None
         return f"hDenV{serotype}/Brazil/{region}/{year}"
     if kind == "vsr":
-        subtype = str(row.get("Genótipo") or "").strip().upper()
+        subtype = str(row.get("Subtipo") or row.get("Genótipo") or "").strip().upper()
         if subtype not in ("A", "B"):
             warnings.append(f"Amostra {code}: genótipo do VSR deve ser 'A' ou 'B' (veio {subtype!r}), pulando.")
             return None
@@ -240,6 +240,10 @@ def build_records(kind, headers, rows, warnings):
     for row in rows:
         code = sample_code(row.get("Código Amostra"))
         if not code:
+            continue
+        typing_alert = str(row.get("Alerta de Tipagem", "")).strip()
+        if typing_alert:
+            warnings.append(f"Amostra {code}: alerta de tipagem presente ({typing_alert}), pulando para evitar submissão inconsistente.")
             continue
         missing = [f for f in MANDATORY_INSTITUTIONAL if not str(row.get(f, "")).strip()]
         if missing:

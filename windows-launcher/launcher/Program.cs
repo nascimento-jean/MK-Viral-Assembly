@@ -44,7 +44,7 @@ internal sealed class LauncherEngine : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MK-Viral-Assembly");
 
-    private const string ReleaseRef = "v1.2.2";
+    private const string ReleaseRef = "v1.2.3";
     public event Action<string>? Message;
     public string LogPath => Path.Combine(_dataDir, "launcher.log");
     public WslTarget? Target { get; private set; }

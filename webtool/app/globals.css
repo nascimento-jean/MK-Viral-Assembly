@@ -312,3 +312,10 @@ tbody tr.selectable:hover, tbody tr.selectable:focus, tbody tr.selected-run { ba
 .queue-banner strong { color:#506d1e; font-size:10px; }
 .queue-banner span { color:#718248; font-size:9px; text-align:right; }
 @media (max-width:620px) { .queue-banner { align-items:flex-start; flex-direction:column; } .queue-banner span { text-align:left; } }
+
+
+.metadata-template-block { display: grid; gap: 8px; }
+.metadata-template-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #5f7280; font-size: 12px; }
+.metadata-template-links a { color: #087f7a; border: 1px solid #b9e3df; background: #effbf9; border-radius: 7px; padding: 5px 10px; font-weight: 800; text-decoration: none; }
+.metadata-template-links a:hover { background: #dff5f1; }
+.metadata-template-links small { flex-basis: 100%; color: #7c8d98; }

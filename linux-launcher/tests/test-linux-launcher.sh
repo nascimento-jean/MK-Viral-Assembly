@@ -19,7 +19,7 @@ python3 -m py_compile "$LINUX/mkva-window"
 MKVA_WINDOW_TEST=1 "$LINUX/mkva-window" | grep -q '^MKVA_WINDOW_URL=http://127.0.0.1:3000$'
 sh -n "$LINUX/package/DEBIAN/postinst" "$LINUX/package/DEBIAN/postrm"
 MKVA_BOOTSTRAP_TEST=1 \
-MKVA_RELEASE_REF=v1.2.2 \
+MKVA_RELEASE_REF=v1.2.3 \
 MKVA_APP_DATA_DIR="$TEST_ROOT/bootstrap-data" \
 "$LINUX/bootstrap-linux.sh" | grep -q '^MKVA_TARGET='
 MKVA_LAUNCHER_TEST=1 \

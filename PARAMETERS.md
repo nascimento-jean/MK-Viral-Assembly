@@ -170,22 +170,31 @@ samplesheet `gff` value overrides the global GFF for that sample.
 
 ## 5. Optional analyses
 
-### `--metadata <table.csv|table.tsv>`
+### `--metadata <table.xlsx|table.csv|table.tsv>`
 
-Optional per-sample metadata table. The input must be CSV or TSV text and must
-contain `Código Amostra`, matching the sample identifier in the samplesheet.
-The pipeline writes one `metadata_<virus>.xlsx` workbook for PASS/WARN samples.
+Optional per-sample metadata table. Start from `assets/template_metadata.xlsx`,
+`assets/template_metadata.csv`, or `assets/template_metadata.tsv`. Keep the column
+headings unchanged and provide one row per sample. `Código Amostra` must match the
+sample identifier in the FASTQ/samplesheet. Excel date cells are converted to
+ISO dates automatically. The pipeline writes one `metadata_<virus>.xlsx` workbook
+for PASS/WARN samples.
 
 For an automatic GISAID bulk-upload bundle, also provide `Submissor`,
 `Lab_Origem`, `Lab_Submissão`, `Endereço`, `Autores`, and `Código da Região`.
-Dengue requires `Sorotipo` (`DENV1`–`DENV4`), and RSV/VSR requires `Genótipo`
-(`A` or `B`) when the typing step does not supply it. The optional column
-`Tecnologia de Sequenciamento` can record the instrument; otherwise the pipeline
-uses `Illumina`, consistent with its paired-end Illumina input. Supported GISAID outputs
-are SARS-CoV-2, Dengue, Chikungunya, Oropouche, and RSV/VSR. The resulting
-official-template `.xls` and matching FASTA are written under
-`results/<virus>/gisaid/`; incomplete samples are skipped with a warning while
-the rest of the pipeline continues.
+For Dengue, `Sorotipo` accepts common labels and is normalized to `DENV1`–`DENV4`.
+For RSV/VSR, `Subtipo` is normalized to `A` or `B`, while `Genótipo` preserves a
+detailed lineage such as `A.D.1`. Nextclade/BLAST calls take precedence only when
+they are unambiguous and agree with declared metadata. A disagreement produces an
+`Alerta de Tipagem`, leaves the automatic subtype/serotype blank, and excludes that
+sample from the GISAID bundle until it is reviewed. `Origem da Tipagem` records the
+source used.
+
+The optional column `Tecnologia de Sequenciamento` can record the instrument;
+otherwise the pipeline uses `Illumina`, consistent with its paired-end Illumina
+input. Supported GISAID outputs are SARS-CoV-2, Dengue, Chikungunya, Oropouche,
+and RSV/VSR. The official-template `.xls` and matching FASTA are written under
+`results/<virus>/gisaid/`; incomplete or conflicted samples are skipped with a
+warning while the rest of the pipeline continues.
 
 ### `--kraken2_db <directory>`
 

@@ -9,6 +9,11 @@ Escolha o seu sistema:
 
 A instalação por linha de comando para servidores e HPC continua disponível no [README principal](../README.md#requirements).
 
+
+## Modelo de metadados
+
+Baixe um modelo diretamente no campo **Metadados** da WebTool (XLSX, CSV ou TSV); no Ubuntu, ele será salvo em `~/Downloads` ou use os arquivos `assets/template_metadata.*` do repositório. Preencha uma linha por amostra e mantenha os títulos das colunas. O código em `Código Amostra` deve corresponder ao nome da amostra nos FASTQ/samplesheet. Para Dengue, informe `Sorotipo` como DENV1–DENV4 quando conhecido; para VSR, informe `Subtipo` como A ou B e use `Genótipo` para a linhagem detalhada. A ferramenta confronta esses dados com Nextclade/BLAST e sinaliza conflitos antes de criar a planilha GISAID.
+
 ## Antes de instalar
 
 Recursos recomendados:
@@ -66,7 +71,7 @@ O pacote gráfico é compatível com Ubuntu 22.04 e 24.04 em computadores x86-64
 ### Instalar pela Central de Aplicativos
 
 1. Abra a [versão mais recente do MK-Viral-Assembly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/latest).
-2. Baixe `MK-Viral-Assembly-WebTool_1.2.2_amd64.deb`. O arquivo `.sha256` correspondente é opcional.
+2. Baixe `MK-Viral-Assembly-WebTool_1.2.3_amd64.deb`. O arquivo `.sha256` correspondente é opcional.
 3. Abra o arquivo `.deb` com a **Central de Aplicativos** ou **Instalação de software**.
 4. Clique em **Instalar** e informe a senha do Ubuntu.
 5. Abra o menu de aplicativos, procure **MK-Viral-Assembly** e execute-o.
@@ -80,17 +85,17 @@ Se a Central de Aplicativos não abrir o pacote, execute:
 
 ```bash
 cd ~/Downloads
-sha256sum -c MK-Viral-Assembly-WebTool_1.2.2_amd64.deb.sha256
-sudo apt install ./MK-Viral-Assembly-WebTool_1.2.2_amd64.deb
+sha256sum -c MK-Viral-Assembly-WebTool_1.2.3_amd64.deb.sha256
+sudo apt install ./MK-Viral-Assembly-WebTool_1.2.3_amd64.deb
 ```
 
 Depois, abra **MK-Viral-Assembly** pelo menu de aplicativos. O comando `apt install ./...` também instala as dependências gráficas e de sistema necessárias ao aplicativo.
 
-Se a versão 1.2.2 já estiver instalada e você precisar substituir uma edição anterior do mesmo arquivo, use:
+Se a versão 1.2.3 já estiver instalada e você precisar substituir uma edição anterior do mesmo arquivo, use:
 
 ```bash
 cd ~/Downloads
-sudo apt install --reinstall ./MK-Viral-Assembly-WebTool_1.2.2_amd64.deb
+sudo apt install --reinstall ./MK-Viral-Assembly-WebTool_1.2.3_amd64.deb
 ```
 
 O pacote instala somente o inicializador, o ícone e o script de preparação nos diretórios do sistema. Na primeira abertura, o aplicativo cria o ambiente isolado dentro da pasta pessoal:
@@ -156,5 +161,5 @@ sudo apt remove mk-viral-assembly-webtool
 - **A janela de seleção aparece atrás do aplicativo:** atualize para a versão mais recente. Os inicializadores atuais solicitam que os diálogos nativos sejam exibidos em primeiro plano.
 - **O Ubuntu informa arquitetura incompatível:** o pacote atual é para AMD64/x86-64, não ARM64.
 - **A WebTool não abre no Ubuntu:** confirme que o `.deb` foi instalado com `apt`, execute `mk-viral-assembly --diagnose` e consulte `~/.local/state/mk-viral-assembly/launcher.log` e `webtool-service.log`.
-- **A versão 1.2.0 continua dizendo que está sendo preparada após concluir:** instale a versão 1.2.2 ou mais recente. Termine a sessão do Ubuntu e entre novamente uma vez para encerrar o processo antigo; depois abra o aplicativo uma única vez.
+- **A versão 1.2.0 continua dizendo que está sendo preparada após concluir:** instale a versão 1.2.3 ou mais recente. Termine a sessão do Ubuntu e entre novamente uma vez para encerrar o processo antigo; depois abra o aplicativo uma única vez.
 - **Falta de espaço:** FASTQs, diretórios de trabalho do Nextflow e bancos geralmente ocupam a maior parte do disco.

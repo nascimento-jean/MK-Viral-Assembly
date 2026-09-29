@@ -9,7 +9,8 @@ process METADATA_XLSX {
     tuple val(virus),
           path(qc_files,       stageAs: "consensus_qc/*"),
           path(readstat_files, stageAs: "read_stats/*"),
-          path(nextclade_file, stageAs: "nextclade/*")
+          path(nextclade_file, stageAs: "nextclade/*"),
+          path(blast_file,     stageAs: "blast/*")
     path metadata
 
     output:
@@ -18,6 +19,7 @@ process METADATA_XLSX {
 
     script:
     def nc_arg = nextclade_file ? "--nextclade nextclade/nextclade_summary.tsv" : ""
+    def blast_arg = blast_file ? "--blast blast/blast_summary.tsv" : ""
     def rs_arg = readstat_files ? "--read-stats-dir read_stats" : ""
     def sw_version = workflow.manifest.version ?: ''
     """
@@ -27,6 +29,7 @@ process METADATA_XLSX {
         --qc-dir consensus_qc \
         ${rs_arg} \
         ${nc_arg} \
+        ${blast_arg} \
         --out metadata_${virus}.xlsx \
         --pass ${params.dash_pass} \
         --warn ${params.dash_warn} \

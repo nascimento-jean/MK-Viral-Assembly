@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 
 APP_ID = "org.mkviralassembly.WebTool"
@@ -38,6 +39,23 @@ def run_window(url: str) -> int:
             settings = webview.get_settings()
             settings.set_enable_developer_extras(False)
 
+        @staticmethod
+        def download_started(_context: WebKit2.WebContext, download: WebKit2.Download) -> None:
+            def decide_destination(item: WebKit2.Download, suggested_filename: str) -> bool:
+                download_dir = Path.home() / "Downloads"
+                download_dir.mkdir(parents=True, exist_ok=True)
+                safe_name = Path(suggested_filename or "download").name
+                destination = download_dir / safe_name
+                stem, suffix = destination.stem, destination.suffix
+                counter = 1
+                while destination.exists():
+                    destination = download_dir / f"{stem} ({counter}){suffix}"
+                    counter += 1
+                item.set_destination(GLib.filename_to_uri(str(destination), None))
+                return True
+
+            download.connect("decide-destination", decide_destination)
+
         def show_webview(self, webview: WebKit2.WebView) -> None:
             window = Gtk.ApplicationWindow(application=self)
             window.set_title(APP_TITLE)
@@ -67,6 +85,7 @@ def run_window(url: str) -> int:
 
             webview = WebKit2.WebView()
             self.configure_webview(webview)
+            webview.get_context().connect("download-started", self.download_started)
             webview.connect("create", self.create_webview)
             webview.load_uri(url)
             self.show_webview(webview)

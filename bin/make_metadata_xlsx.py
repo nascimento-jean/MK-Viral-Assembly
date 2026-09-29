@@ -11,8 +11,9 @@ import os
 import re
 import sys
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from xml.sax.saxutils import escape
+from xml.etree import ElementTree
 
 BASE_HEADERS = [
     "Vírus", "Código Amostra", "CT", "Município", "UF município solicitante",
@@ -27,6 +28,7 @@ META_FIELDS = [
     "Data Coleta", "Tipo Amostra", "Idade", "Tipo Idade", "Sexo",
     "Tecnologia de Sequenciamento", "Submissor", "Lab_Origem", "Lab_Submissão", "Endereço", "Autores", "Código da Região",
 ]
+XLSX_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 
 
 def normalized_token(value):
@@ -40,6 +42,8 @@ def virus_kind(*values):
         return "dengue"
     if any(token in ("sarscov2", "sars2", "covid19") or "sarscov2" in token for token in tokens):
         return "sarscov2"
+    if any("rsv" in token or "vsr" in token or "sincicial" in token for token in tokens):
+        return "vsr"
     return "other"
 
 
@@ -47,13 +51,42 @@ def output_headers(kind):
     typing_headers = ["Linhagem"] if kind == "sarscov2" else ["Genótipo"]
     if kind == "dengue":
         typing_headers.insert(0, "Sorotipo")
-    return BASE_HEADERS + typing_headers + FINAL_HEADERS
+    elif kind == "vsr":
+        typing_headers.insert(0, "Subtipo")
+    return BASE_HEADERS + typing_headers + ["Origem da Tipagem", "Alerta de Tipagem"] + FINAL_HEADERS
 
 
-def dengue_serotype(value):
-    """Convert metadata labels such as denv3/DENV-2 to DENV3/DENV2."""
-    match = re.search(r"(?:denv|dengue)\s*[-_ ]*([1-4])", str(value or ""), re.IGNORECASE)
+def normalize_dengue_serotype(value):
+    """Normalize unambiguous Dengue labels to DENV1..DENV4."""
+    text = str(value or "").strip()
+    match = re.search(r"(?:denv|dengue(?:\s+virus)?|serotype|sorotipo)\s*[-_: ]*([1-4])\b", text, re.IGNORECASE)
+    if not match and re.fullmatch(r"[1-4]", text):
+        match = re.match(r"([1-4])", text)
     return f"DENV{match.group(1)}" if match else ""
+
+
+def normalize_rsv_subtype(value):
+    """Normalize RSV/VSR subtype or detailed lineage values to A or B."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    upper = text.upper()
+    if upper in ("A", "B"):
+        return upper
+    lineage = re.match(r"^([AB])(?:[.\-_/]|\s)", upper)
+    if lineage:
+        return lineage.group(1)
+    match = re.search(
+        r"(?:RSV|VSR|RESPIRATORY\s+SYNCYTIAL\s+VIRUS|VIRUS\s+SINCICIAL\s+RESPIRATORIO)\s*[-_: /]*(?:SUBTYPE\s*)?([AB])\b",
+        upper,
+    )
+    return match.group(1) if match else ""
+
+
+def typing_values(kind, value):
+    normalizer = normalize_dengue_serotype if kind == "dengue" else normalize_rsv_subtype
+    normalized = normalizer(value)
+    return {normalized} if normalized else set()
 
 
 def sample_code(value):
@@ -76,7 +109,85 @@ def sniff_dialect(path):
         return D
 
 
+def col_index(ref):
+    letters = re.match(r"[A-Z]+", ref).group()
+    value = 0
+    for char in letters:
+        value = value * 26 + ord(char) - 64
+    return value - 1
+
+
+def read_xlsx_table(path):
+    """Read the first XLSX worksheet, including inline and shared strings."""
+    with zipfile.ZipFile(path) as archive:
+        workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+        rels = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        relationship_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+        package_ns = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+        first_sheet = workbook.find(f"{XLSX_NS}sheets/{XLSX_NS}sheet")
+        rel_id = first_sheet.get(f"{relationship_ns}id")
+        target = next(
+            rel.get("Target") for rel in rels.findall(f"{package_ns}Relationship")
+            if rel.get("Id") == rel_id
+        )
+        target = target.lstrip("/")
+        if not target.startswith("xl/"):
+            target = "xl/" + target
+        shared = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            shared_root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+            for item in shared_root.findall(f"{XLSX_NS}si"):
+                shared.append("".join(node.text or "" for node in item.iter(f"{XLSX_NS}t")))
+        date_styles = set()
+        if "xl/styles.xml" in archive.namelist():
+            styles_root = ElementTree.fromstring(archive.read("xl/styles.xml"))
+            custom_formats = {
+                int(item.get("numFmtId")): item.get("formatCode", "")
+                for item in styles_root.findall(f"{XLSX_NS}numFmts/{XLSX_NS}numFmt")
+            }
+            cell_xfs = styles_root.find(f"{XLSX_NS}cellXfs")
+            if cell_xfs is not None:
+                for style_index, xf in enumerate(cell_xfs.findall(f"{XLSX_NS}xf")):
+                    format_id = int(xf.get("numFmtId", "0"))
+                    format_code = re.sub(r'\\.|"[^"]*"', "", custom_formats.get(format_id, "")).lower()
+                    if format_id in range(14, 23) or all(letter in format_code for letter in ("d", "m", "y")):
+                        date_styles.add(style_index)
+        sheet = ElementTree.fromstring(archive.read(target))
+
+    rows = []
+    for row_el in sheet.findall(f"{XLSX_NS}sheetData/{XLSX_NS}row"):
+        values = {}
+        for cell in row_el.findall(f"{XLSX_NS}c"):
+            index = col_index(cell.get("r"))
+            cell_type = cell.get("t")
+            if cell_type == "inlineStr":
+                value = "".join(node.text or "" for node in cell.iter(f"{XLSX_NS}t"))
+            else:
+                value_el = cell.find(f"{XLSX_NS}v")
+                value = value_el.text if value_el is not None and value_el.text is not None else ""
+                if cell_type == "s" and value:
+                    value = shared[int(value)]
+                elif value and int(cell.get("s", "0")) in date_styles:
+                    try:
+                        value = (datetime(1899, 12, 30) + timedelta(days=float(value))).date().isoformat()
+                    except ValueError:
+                        pass
+            values[index] = value
+        rows.append(values)
+    if not rows:
+        return []
+    width = max(rows[0], default=-1) + 1
+    headers = [str(rows[0].get(i, "")).strip() for i in range(width)]
+    return [
+        {headers[i]: str(values.get(i, "")).strip() for i in range(width) if headers[i]}
+        for values in rows[1:]
+        if any(str(value).strip() for value in values.values())
+    ]
+
+
 def read_table(path):
+    if os.path.splitext(path)[1].lower() == ".xlsx":
+        return read_xlsx_table(path)
     dialect = sniff_dialect(path)
     with open(path, "r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh, dialect=dialect)
@@ -132,6 +243,63 @@ def fmt_lineage(row):
     return row.get("lineage") or row.get("pango") or row.get("genotype") or row.get("clade") or ""
 
 
+def values_from_nextclade(kind, row):
+    if not row:
+        return set()
+    values = set()
+    for field in ("genotype", "lineage", "clade", "pango", "lineage_L", "lineage_M", "lineage_S"):
+        values.update(typing_values(kind, row.get(field)))
+    return values
+
+
+def values_from_blast(kind, rows):
+    values = set()
+    for row in rows:
+        for field in ("best_hit_species", "species", "subject_title", "title"):
+            values.update(typing_values(kind, row.get(field)))
+    return values
+
+
+def resolve_typing(kind, meta, nextclade_row, blast_rows):
+    """Return (value, source, alert), refusing ambiguous or conflicting calls."""
+    if kind not in ("dengue", "vsr"):
+        return "", "", ""
+    if kind == "dengue":
+        declared_fields = ("Sorotipo", "Vírus")
+        label = "sorotipo de Dengue"
+    else:
+        declared_fields = ("Subtipo", "Genótipo", "Vírus", "_analysis_virus")
+        label = "subtipo de VSR"
+    if kind == "dengue":
+        declared_fields = declared_fields + ("_analysis_virus",)
+    declared = set()
+    for field in declared_fields:
+        declared.update(typing_values(kind, meta.get(field)))
+    nc_values = values_from_nextclade(kind, nextclade_row)
+    blast_values = values_from_blast(kind, blast_rows)
+    analytic = nc_values | blast_values
+    if len(analytic) > 1:
+        return "", "", f"Conflito analítico no {label}: {', '.join(sorted(analytic))}. Revise Nextclade/BLAST."
+    if len(declared) > 1:
+        return "", "", f"Conflito nos metadados do {label}: {', '.join(sorted(declared))}."
+    if analytic:
+        value = next(iter(analytic))
+        if declared and value not in declared:
+            return "", "", (
+                f"Conflito no {label}: resultado analítico {value} e metadado declarado "
+                f"{next(iter(declared))}. A amostra não será preenchida automaticamente para o GISAID."
+            )
+        sources = []
+        if nc_values:
+            sources.append("Nextclade")
+        if blast_values:
+            sources.append("BLAST")
+        return value, " + ".join(sources), ""
+    if declared:
+        return next(iter(declared)), "Metadados/identificação da análise", ""
+    return "", "", f"Não foi possível determinar o {label}. Preencha o metadado ou revise os resultados analíticos."
+
+
 def col_name(n):
     s = ""
     while n:
@@ -171,7 +339,7 @@ def write_xlsx(path, headers, rows):
         "Software Montagem": 20,
         "Versão software": 16, "Versão primer": 18, "Versão Pangolin": 16,
         "Reads": 12, "Profundidade Média": 18, "Cobertura": 12,
-        "Sorotipo": 12, "Linhagem": 20, "Genótipo": 20,
+        "Sorotipo": 12, "Subtipo": 12, "Linhagem": 20, "Genótipo": 20, "Origem da Tipagem": 22, "Alerta de Tipagem": 62,
         "Nome da Sequencia": 20,
     }
     cols = ''.join(
@@ -216,6 +384,7 @@ def main():
     ap.add_argument("--qc-dir", required=True)
     ap.add_argument("--read-stats-dir", default=None)
     ap.add_argument("--nextclade", default=None)
+    ap.add_argument("--blast", default=None)
     ap.add_argument("--out", required=True)
     ap.add_argument("--pass", dest="pass_t", type=float, default=0.90)
     ap.add_argument("--warn", dest="warn_t", type=float, default=0.70)
@@ -224,8 +393,8 @@ def main():
     args = ap.parse_args()
 
     metadata_suffix = os.path.splitext(args.metadata)[1].lower()
-    if metadata_suffix not in (".csv", ".tsv", ".txt"):
-        sys.exit("ERROR: --metadata must be a CSV or TSV text file (XLSX is not supported as input).")
+    if metadata_suffix not in (".csv", ".tsv", ".txt", ".xlsx"):
+        sys.exit("ERROR: --metadata must be an XLSX, CSV or TSV file.")
     meta_rows = read_table(args.metadata)
     if not meta_rows:
         sys.exit(f"ERROR: no rows found in metadata table: {args.metadata}")
@@ -256,6 +425,11 @@ def main():
 
     reads_by_code = {sample_code(r.get("sample")): r for r in read_tsv_dir(args.read_stats_dir)}
     nc_by_code = {sample_code(r.get("sample")): r for r in read_tsv(args.nextclade)}
+    blast_by_code = {}
+    for blast_row in read_tsv(args.blast):
+        code = sample_code(blast_row.get("sample"))
+        if code:
+            blast_by_code.setdefault(code, []).append(blast_row)
     kind = virus_kind(args.virus)
     headers = output_headers(kind)
 
@@ -280,6 +454,12 @@ def main():
         coverage = ffloat(qc.get(breadth_col), None)
         if coverage is not None and 0.0 <= coverage <= 1.0:
             coverage *= 100.0
+        typing_meta = dict(meta)
+        typing_meta["_analysis_virus"] = args.virus
+        typing_value, typing_source, typing_alert = resolve_typing(
+            kind, typing_meta, nc_by_code.get(code), blast_by_code.get(code, [])
+        )
+        detailed_typing = fmt_lineage(nc_by_code.get(code))
         row = []
         for h in headers:
             if h == "Vírus":
@@ -299,15 +479,20 @@ def main():
             elif h == "Cobertura":
                 row.append(round(coverage, 2) if coverage is not None else "")
             elif h == "Sorotipo":
-                row.append(dengue_serotype(meta.get("Sorotipo") or meta.get("Vírus") or args.virus))
+                row.append(typing_value)
+            elif h == "Subtipo":
+                row.append(typing_value)
             elif h in ("Linhagem", "Genótipo"):
-                # Prefer the pipeline typing result, but retain an explicit
-                # user-provided value when Nextclade was not requested or did
-                # not produce a call. RSV subtype A/B is mandatory in GISAID.
-                row.append(fmt_lineage(nc_by_code.get(code)) or meta.get(h, ""))
+                row.append(detailed_typing or meta.get(h, ""))
+            elif h == "Origem da Tipagem":
+                row.append(typing_source)
+            elif h == "Alerta de Tipagem":
+                row.append(typing_alert)
             else:
                 row.append("")
         output_rows.append(row)
+        if typing_alert:
+            print(f"WARNING: Amostra {code}: {typing_alert}", file=sys.stderr)
 
     if missing_meta:
         print("WARNING: PASS/WARN sample(s) missing from metadata and skipped: " + ", ".join(missing_meta), file=sys.stderr)

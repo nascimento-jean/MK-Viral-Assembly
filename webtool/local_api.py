@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("MKVA_WEBTOOL_PORT", "8787"))
@@ -36,6 +36,11 @@ LOG_DIR = DATA_DIR / "logs"
 STATE_FILE = DATA_DIR / "jobs.json"
 SAMPLESHEET_SCRIPT = PROJECT_DIR / "bin" / "make_samplesheet.py"
 VIRUS_CATALOG = PROJECT_DIR / "assets" / "virus_catalog.tsv"
+METADATA_TEMPLATES = {
+    "xlsx": (PROJECT_DIR / "assets" / "template_metadata.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    "csv": (PROJECT_DIR / "assets" / "template_metadata.csv", "text/csv; charset=utf-8"),
+    "tsv": (PROJECT_DIR / "assets" / "template_metadata.tsv", "text/tab-separated-values; charset=utf-8"),
+}
 NEXTFLOW = Path(os.environ.get("MKVA_NEXTFLOW") or shutil.which("nextflow") or "nextflow")
 JAVA_CMD = os.environ.get("MKVA_JAVA") or shutil.which("java") or "java"
 ALLOWED_PROFILES = {"singularity", "docker", "conda", "mamba", "standalone"}
@@ -89,7 +94,7 @@ PICKER_CONFIG = {
     "samplesheet": {"mode": "file", "title": "Selecione o samplesheet CSV", "filter": "CSV (*.csv)|*.csv|Todos os arquivos (*.*)|*.*"},
     "samplesheet_parent": {"mode": "folder", "title": "Selecione a pasta-pai com as subpastas dos vírus"},
     "samplesheet_output": {"mode": "save", "title": "Salvar samplesheet como", "filter": "CSV (*.csv)|*.csv|Todos os arquivos (*.*)|*.*", "default_name": "samplesheet.csv"},
-    "metadata": {"mode": "file", "title": "Selecione o arquivo de metadados CSV/TSV", "filter": "Metadados CSV/TSV (*.csv;*.tsv)|*.csv;*.tsv|Todos os arquivos (*.*)|*.*"},
+    "metadata": {"mode": "file", "title": "Selecione o arquivo de metadados XLSX/CSV/TSV", "filter": "Metadados (*.xlsx;*.csv;*.tsv)|*.xlsx;*.csv;*.tsv|Excel (*.xlsx)|*.xlsx|CSV/TSV (*.csv;*.tsv)|*.csv;*.tsv|Todos os arquivos (*.*)|*.*"},
     "outdir": {"mode": "folder", "title": "Selecione o diretório de resultados"},
     "kraken_db": {"mode": "folder", "title": "Selecione o diretório do banco Kraken2"},
 }
@@ -404,8 +409,8 @@ def build_command(payload: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
     kraken_enabled = bool(payload.get("kraken"))
     kraken_raw = clean_text(payload.get("kraken_db"), "Banco Kraken2")
     metadata = local_path(metadata_raw, "Metadados") if metadata_raw else ""
-    if metadata and Path(metadata).suffix.lower() not in {".csv", ".tsv"}:
-        raise ValueError("Metadados: selecione um arquivo CSV ou TSV")
+    if metadata and Path(metadata).suffix.lower() not in {".xlsx", ".csv", ".tsv"}:
+        raise ValueError("Metadados: selecione um arquivo XLSX, CSV ou TSV")
     kraken_db = local_path(kraken_raw, "Banco Kraken2") if kraken_enabled and kraken_raw else ""
     primer_bed_raw = clean_text(payload.get("primer_bed"), "Primer BED") if input_mode == "single" else ""
     gff_raw = clean_text(payload.get("gff"), "Anotação GFF3") if input_mode == "single" else ""
@@ -794,7 +799,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/api/metadata-template":
+            template_format = parse_qs(parsed.query).get("format", ["xlsx"])[0].lower()
+            template = METADATA_TEMPLATES.get(template_format)
+            if not template:
+                self.json_response(400, {"error": "Formato de modelo inválido; use xlsx, csv ou tsv"}); return
+            file, content_type = template
+            if not file.is_file():
+                self.json_response(404, {"error": "Modelo de metadados não encontrado"}); return
+            self.file_response(file.read_bytes(), content_type, file.name); return
         if path == "/api/health":
             self.json_response(200, {"ok": True, "project": str(PROJECT_DIR),
                                      "nextflow": str(NEXTFLOW), "nextflow_available": NEXTFLOW.exists(),
