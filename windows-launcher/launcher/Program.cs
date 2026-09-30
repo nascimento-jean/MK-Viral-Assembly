@@ -301,7 +301,7 @@ internal sealed class LauncherEngine : IDisposable
         }
 
         var target = Target ?? await DetectAsync(cancellationToken);
-        Message?.Invoke("Encerrando uma instância anterior da WebTool...");
+        Message?.Invoke("Preparando a interface local...");
         await StopConflictingWebtoolsAsync(target, cancellationToken);
         Message?.Invoke($"Iniciando {target.Distro} silenciosamente...");
         StartWsl(target);
@@ -1379,7 +1379,7 @@ internal static class ApplicationWindow
                         var handle = process.MainWindowHandle;
                         var title = process.MainWindowTitle;
                         if (handle == IntPtr.Zero ||
-                            !title.Contains("MK-Viral-Assembly", StringComparison.OrdinalIgnoreCase))
+                            !string.Equals(title.Trim(), "MK-Viral-Assembly Webtool", StringComparison.OrdinalIgnoreCase))
                             continue;
                         if (IsIconic(handle)) ShowWindow(handle, SwRestore);
                         BringWindowToTop(handle);
