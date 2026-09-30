@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPOSITORY="${MKVA_REPOSITORY:-https://github.com/nascimento-jean/MK-Viral-Assembly}"
 RELEASE_REF="${MKVA_RELEASE_REF:-main}"
-RELEASE_REVISION="${MKVA_RELEASE_REVISION:-picker-bridge-2026-09-29}"
+RELEASE_REVISION="${MKVA_RELEASE_REVISION:-startup-recovery-2026-09-30}"
 INSTALL_DIR="${MKVA_INSTALL_DIR:-$HOME/MK-Viral-Assembly}"
 MINIFORGE_DIR="${MKVA_CONDA_DIR:-$HOME/miniforge3}"
 WORK_DIR="$(mktemp -d -t mkva-install-XXXXXX)"
@@ -123,6 +123,8 @@ cat > "$INSTALL_DIR/.mkva-managed-install" <<EOF
 repository=$REPOSITORY
 release=$RELEASE_REF
 revision=$RELEASE_REVISION
+conda_base=$CONDA_BASE
+install_user=$(id -un)
 installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 "$CONDA_EXE" clean --all -y >/dev/null 2>&1 || true

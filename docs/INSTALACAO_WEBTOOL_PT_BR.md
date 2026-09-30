@@ -159,6 +159,7 @@ sudo apt remove mk-viral-assembly-webtool
 - **A preparação inicial falha:** confirme a internet e o espaço livre e reabra o aplicativo. As etapas concluídas são reaproveitadas.
 - **Proxy ou firewall institucional:** libere GitHub, conda-forge, Bioconda, NCBI e os registros usados pelo perfil escolhido.
 - **A janela de seleção aparece atrás do aplicativo:** atualize para a versão mais recente. Os inicializadores atuais solicitam que os diálogos nativos sejam exibidos em primeiro plano.
+- **“O serviço encerrou antes de iniciar” após atualizar no Windows:** reinstale o arquivo 1.2.4 mais recente. O inicializador atual encerra automaticamente instâncias antigas da WebTool antes de iniciar o serviço corrigido.
 - **O Ubuntu informa arquitetura incompatível:** o pacote atual é para AMD64/x86-64, não ARM64.
 - **A WebTool não abre no Ubuntu:** confirme que o `.deb` foi instalado com `apt`, execute `mk-viral-assembly --diagnose` e consulte `~/.local/state/mk-viral-assembly/launcher.log` e `webtool-service.log`.
 - **A versão 1.2.0 continua dizendo que está sendo preparada após concluir:** instale a versão 1.2.4 ou mais recente. Termine a sessão do Ubuntu e entre novamente uma vez para encerrar o processo antigo; depois abra o aplicativo uma única vez.

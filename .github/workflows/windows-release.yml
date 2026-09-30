@@ -33,6 +33,15 @@ jobs:
         run: |
           MKVA_BOOTSTRAP_TEST=1 bash windows-launcher/bootstrap-wsl.sh
           bash windows-launcher/tests/test-bootstrap-update.sh
+      - name: Validate managed Windows service start
+        run: |
+          test_root="$(mktemp -d)"
+          trap 'rm -rf "$test_root"' EXIT
+          mkdir -p "$test_root/bin" "$test_root/picker"
+          ln -s "$(command -v node)" "$test_root/bin/node"
+          ln -s "$(command -v npm)" "$test_root/bin/npm"
+          touch "$test_root/picker/heartbeat"
+          MKVA_TEST_PROJECT="$GITHUB_WORKSPACE"           MKVA_TEST_NODE_ENV_BIN="$test_root/bin"           MKVA_TEST_NEXTFLOW=/bin/true           MKVA_TEST_JAVA=/bin/true           MKVA_TEST_PICKER_DIR="$test_root/picker"             bash windows-launcher/tests/test-managed-start.sh
       - name: Validate Ubuntu launcher without downloads
         run: bash linux-launcher/tests/test-linux-launcher.sh
       - name: Validate pipeline Python tools

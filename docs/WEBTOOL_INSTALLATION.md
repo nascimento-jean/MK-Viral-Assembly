@@ -159,6 +159,7 @@ sudo apt remove mk-viral-assembly-webtool
 - **First setup fails:** confirm the internet connection and free storage, then reopen the application. It resumes completed steps.
 - **Institutional proxy or firewall:** allow GitHub, conda-forge, Bioconda, NCBI and registries used by the selected pipeline profile.
 - **Folder picker opens behind the application:** update to the latest release. The current launchers request native dialogs in the foreground.
+- **“The service exited before starting” after a Windows update:** reinstall the latest 1.2.4 installer. The current launcher stops stale WebTool instances before starting the corrected local service.
 - **Ubuntu package reports an unsupported architecture:** the current package supports AMD64/x86-64, not ARM64.
 - **WebTool does not open on Ubuntu:** confirm that the `.deb` was installed with `apt`, run `mk-viral-assembly --diagnose`, and inspect `~/.local/state/mk-viral-assembly/launcher.log` and `webtool-service.log`.
 - **Version 1.2.0 still says setup is running after completion:** install version 1.2.4 or newer. Sign out of Ubuntu and sign in once to stop the old process, then open the application once.

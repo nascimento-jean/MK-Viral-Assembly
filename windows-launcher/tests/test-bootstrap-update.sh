@@ -38,7 +38,7 @@ printf 'obsolete\n' > "$install/webtool/native_picker.cs"
 output="$(
   MKVA_REPOSITORY="file://$repository" \
   MKVA_RELEASE_REF=vtest \
-  MKVA_RELEASE_REVISION=picker-bridge-2026-09-29 \
+  MKVA_RELEASE_REVISION=startup-recovery-2026-09-30 \
   MKVA_INSTALL_DIR="$install" \
   MKVA_BOOTSTRAP_SOURCE_TEST=1 \
   bash "$ROOT/windows-launcher/bootstrap-wsl.sh"

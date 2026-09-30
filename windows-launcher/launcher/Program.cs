@@ -52,7 +52,7 @@ internal static class Program
     }
 }
 
-internal sealed record WslTarget(string Distro, string ProjectPath);
+internal sealed record WslTarget(string Distro, string ProjectPath, string User = "");
 
 internal sealed class LauncherEngine : IDisposable
 {
@@ -62,13 +62,14 @@ internal sealed class LauncherEngine : IDisposable
     };
 
     private readonly object _logLock = new();
+    private readonly Queue<string> _recentOutput = new();
     private Process? _wslProcess;
     private readonly string _dataDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MK-Viral-Assembly");
 
     private const string ReleaseRef = "v1.2.4";
-    private const string ReleaseRevision = "picker-bridge-2026-09-29";
+    private const string ReleaseRevision = "startup-recovery-2026-09-30";
     public string? PickerDirectory { get; set; }
     public event Action<string>? Message;
     public string LogPath => Path.Combine(_dataDir, "launcher.log");
@@ -81,6 +82,8 @@ internal sealed class LauncherEngine : IDisposable
         var configured = LoadConfiguration();
         if (configured is not null && await ProbeTargetAsync(configured, cancellationToken))
         {
+            configured = await ResolveTargetUserAsync(configured, cancellationToken);
+            SaveConfiguration(configured);
             Target = configured;
             return configured;
         }
@@ -90,12 +93,15 @@ internal sealed class LauncherEngine : IDisposable
         foreach (var distro in distros)
         {
             var command = "for p in \"$HOME/MK-Viral-Assembly\" /home/*/MK-Viral-Assembly /mnt/d/MK-Viral-Assembly; do " +
-                          "if [ -x \"$p/webtool/start-local.sh\" ] && [ -f \"$p/main.nf\" ]; then printf '%s' \"$p\"; exit 0; fi; done; exit 4";
+                          "if [ -x \"$p/webtool/start-local.sh\" ] && [ -f \"$p/main.nf\" ]; then " +
+                          "owner=$(stat -c %U \"$p\" 2>/dev/null || id -un); printf '%s\t%s' \"$p\" \"$owner\"; exit 0; fi; done; exit 4";
             var result = await RunWslCaptureAsync(distro, command, cancellationToken);
-            var project = result.Output.Trim();
+            var parts = result.Output.Trim().Split('	', 2);
+            var project = parts.ElementAtOrDefault(0) ?? string.Empty;
+            var user = parts.ElementAtOrDefault(1) ?? string.Empty;
             if (result.ExitCode == 0 && project.Length > 0)
             {
-                var target = new WslTarget(distro, project);
+                var target = new WslTarget(distro, project, user);
                 SaveConfiguration(target);
                 Target = target;
                 return target;
@@ -131,19 +137,44 @@ internal sealed class LauncherEngine : IDisposable
             $"release=$(sed -n 's/^release=//p' {project}/.mkva-managed-install | head -n 1); " +
             $"revision=$(sed -n 's/^revision=//p' {project}/.mkva-managed-install | head -n 1); " +
             "printf '%s|%s' \"$release\" \"$revision\"; fi",
-            cancellationToken);
+            cancellationToken,
+            target.User);
         if (current.ExitCode != 0) return;
 
         var parts = current.Output.Trim().Split('|', 2);
         var installedRef = parts.ElementAtOrDefault(0) ?? string.Empty;
         var installedRevision = parts.ElementAtOrDefault(1) ?? string.Empty;
         if (installedRef.Length == 0) return;
-        if (installedRef.Equals(ReleaseRef, StringComparison.Ordinal) &&
-            installedRevision.Equals(ReleaseRevision, StringComparison.Ordinal)) return;
 
-        Message?.Invoke($"Atualizando a instalação gerenciada de {installedRef} para {ReleaseRef}...");
+        var healthy = await ManagedRuntimeHealthyAsync(target, cancellationToken);
+        if (installedRef.Equals(ReleaseRef, StringComparison.Ordinal) &&
+            installedRevision.Equals(ReleaseRevision, StringComparison.Ordinal) &&
+            healthy) return;
+
+        if (installedRef.Equals(ReleaseRef, StringComparison.Ordinal) &&
+            installedRevision.Equals(ReleaseRevision, StringComparison.Ordinal))
+            Message?.Invoke("Reparando os componentes da instalação gerenciada...");
+        else
+            Message?.Invoke($"Atualizando a instalação gerenciada de {installedRef} para {ReleaseRef}...");
+
         await StopExistingWebtoolAsync(target, cancellationToken);
-        await RunBootstrapAsync(target.Distro, target.ProjectPath, cancellationToken);
+        await RunBootstrapAsync(target.Distro, target.ProjectPath, target.User, cancellationToken);
+    }
+
+    private async Task<bool> ManagedRuntimeHealthyAsync(WslTarget target, CancellationToken cancellationToken)
+    {
+        var project = ShellQuote(target.ProjectPath);
+        var command =
+            $"PROJECT={project}; MARKER=\"$PROJECT/.mkva-managed-install\"; " +
+            "BASE=$(sed -n 's/^conda_base=//p' \"$MARKER\" 2>/dev/null | head -n 1); " +
+            "if [ -z \"$BASE\" ]; then for b in \"$HOME/miniforge3\" \"$HOME/miniconda3\" \"$HOME/anaconda3\" \"$HOME/mambaforge\"; do " +
+            "if [ -x \"$b/envs/mkva-webtool/bin/npm\" ]; then BASE=\"$b\"; break; fi; done; fi; " +
+            "test -n \"$BASE\" && test -x \"$BASE/envs/mkva-webtool/bin/node\" && " +
+            "test -x \"$BASE/envs/mkva-webtool/bin/npm\" && test -x \"$BASE/envs/nextflow/bin/nextflow\" && " +
+            "test -x \"$BASE/envs/nextflow/bin/java\" && test -d \"$PROJECT/webtool/dist\"";
+        var result = await RunWslCaptureAsync(
+            target.Distro, command, cancellationToken, target.User);
+        return result.ExitCode == 0;
     }
 
     private async Task<WslTarget> InstallEnvironmentAsync(CancellationToken cancellationToken)
@@ -184,10 +215,16 @@ internal sealed class LauncherEngine : IDisposable
             await TerminateDistroAsync(distro, cancellationToken);
         }
 
-        Message?.Invoke("Baixando e configurando a WebTool. Isso pode levar vários minutos...");
-        var targetPath = await RunBootstrapAsync(distro, null, cancellationToken);
+        var selectedUser = installedDistroNow
+            ? "mkva"
+            : (await RunWslCaptureAsync(distro, "id -un", cancellationToken)).Output.Trim();
+        if (string.IsNullOrWhiteSpace(selectedUser))
+            throw new InvalidOperationException("Não foi possível identificar o usuário padrão da distribuição WSL.");
 
-        var target = new WslTarget(distro, targetPath);
+        Message?.Invoke("Baixando e configurando a WebTool. Isso pode levar vários minutos...");
+        var targetPath = await RunBootstrapAsync(distro, null, selectedUser, cancellationToken);
+
+        var target = new WslTarget(distro, targetPath, selectedUser);
         SaveConfiguration(target);
         Target = target;
         return target;
@@ -196,6 +233,7 @@ internal sealed class LauncherEngine : IDisposable
     private async Task<string> RunBootstrapAsync(
         string distro,
         string? installDir,
+        string? user,
         CancellationToken cancellationToken)
     {
         var bootstrapPath = Path.Combine(AppContext.BaseDirectory, "bootstrap-wsl.sh");
@@ -210,7 +248,7 @@ internal sealed class LauncherEngine : IDisposable
         var shellCommand = $"export MKVA_RELEASE_REF={ShellQuote(ReleaseRef)}; " +
                            $"export MKVA_RELEASE_REVISION={ShellQuote(ReleaseRevision)};{installExport} " +
                            $"printf '%s' '{encoded}' | base64 -d | bash";
-        var result = await RunWslStreamingAsync(distro, shellCommand, cancellationToken);
+        var result = await RunWslStreamingAsync(distro, shellCommand, cancellationToken, user);
         AppendLog(result.Output);
         if (result.ExitCode != 0)
         {
@@ -254,11 +292,8 @@ internal sealed class LauncherEngine : IDisposable
         }
 
         var target = Target ?? await DetectAsync(cancellationToken);
-        if (await ReturnsSuccessAsync("http://127.0.0.1:8787/api/health", cancellationToken))
-        {
-            Message?.Invoke("Reiniciando um serviço antigo para ativar o seletor do Windows...");
-            await StopExistingWebtoolAsync(target, cancellationToken);
-        }
+        Message?.Invoke("Encerrando uma instância anterior da WebTool...");
+        await StopConflictingWebtoolsAsync(target, cancellationToken);
         Message?.Invoke($"Iniciando {target.Distro} silenciosamente...");
         StartWsl(target);
 
@@ -266,16 +301,25 @@ internal sealed class LauncherEngine : IDisposable
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (_wslProcess?.HasExited == true)
-            {
-                throw new InvalidOperationException(
-                    $"O serviço encerrou antes de iniciar. Consulte o log em {LogPath}");
-            }
-
             if (await IsReadyAsync(cancellationToken))
             {
                 Message?.Invoke("Webtool pronta.");
                 return true;
+            }
+
+            if (_wslProcess?.HasExited == true)
+            {
+                await Task.Delay(250, cancellationToken);
+                if (await IsReadyAsync(cancellationToken))
+                {
+                    Message?.Invoke("Webtool pronta.");
+                    return true;
+                }
+                var detail = LastRecentError();
+                throw new InvalidOperationException(
+                    "O serviço encerrou antes de iniciar" +
+                    (string.IsNullOrWhiteSpace(detail) ? "." : $": {detail}") +
+                    $" Consulte o log em {LogPath}");
             }
 
             await Task.Delay(1500, cancellationToken);
@@ -360,16 +404,6 @@ internal sealed class LauncherEngine : IDisposable
             ? string.Empty
             : $"export MKVA_PICKER_DIR=$(wslpath -a -u {ShellQuote(PickerDirectory)}); ";
         var command = $"set -e; PROJECT={project}; {pickerExport}cd \"$PROJECT/webtool\"; " +
-                      "BASE=''; for b in \"$HOME/miniconda3\" \"$HOME/anaconda3\" \"$HOME/miniforge3\" \"$HOME/mambaforge\"; do " +
-                      "if [ -x \"$b/envs/mkva-webtool/bin/npm\" ]; then BASE=\"$b\"; break; fi; done; " +
-                      "if [ -z \"$BASE\" ] && command -v conda >/dev/null 2>&1; then BASE=\"$(conda info --base)\"; fi; " +
-                      "[ -n \"$BASE\" ] || { echo 'Miniconda/Conda não encontrado.' >&2; exit 21; }; " +
-                      "export MKVA_NODE_ENV_BIN=\"$BASE/envs/mkva-webtool/bin\"; " +
-                      "if [ -x \"$BASE/envs/nextflow/bin/nextflow\" ]; then export MKVA_NEXTFLOW=\"$BASE/envs/nextflow/bin/nextflow\"; " +
-                      "elif command -v nextflow >/dev/null 2>&1; then export MKVA_NEXTFLOW=\"$(command -v nextflow)\"; " +
-                      "else echo 'Nextflow não encontrado.' >&2; exit 22; fi; " +
-                      "if [ -x \"$BASE/envs/nextflow/bin/java\" ]; then export MKVA_JAVA=\"$BASE/envs/nextflow/bin/java\"; " +
-                      "elif command -v java >/dev/null 2>&1; then export MKVA_JAVA=\"$(command -v java)\"; fi; " +
                       "if [ -f \"$PROJECT/.mkva-managed-install\" ]; then export MKVA_DEFAULT_PROFILE=conda; fi; " +
                       "exec ./start-local.sh";
 
@@ -383,19 +417,59 @@ internal sealed class LauncherEngine : IDisposable
         };
         info.ArgumentList.Add("-d");
         info.ArgumentList.Add(target.Distro);
+        if (!string.IsNullOrWhiteSpace(target.User))
+        {
+            info.ArgumentList.Add("-u");
+            info.ArgumentList.Add(target.User);
+        }
         info.ArgumentList.Add("--");
         info.ArgumentList.Add("bash");
         info.ArgumentList.Add("-lc");
         info.ArgumentList.Add(WrapShellCommand(command));
 
-        _wslProcess = new Process { StartInfo = info, EnableRaisingEvents = true };
-        _wslProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) AppendLog(e.Data); };
-        _wslProcess.ErrorDataReceived += (_, e) => { if (e.Data is not null) AppendLog("ERRO: " + e.Data); };
-        _wslProcess.Exited += (_, _) => AppendLog($"Processo WSL encerrado com código {_wslProcess.ExitCode}.");
-        _wslProcess.Start();
-        _wslProcess.BeginOutputReadLine();
-        _wslProcess.BeginErrorReadLine();
-        AppendLog($"Iniciado em {DateTime.Now:yyyy-MM-dd HH:mm:ss}: {target.Distro} {target.ProjectPath}");
+        ClearRecentOutput();
+        var process = new Process { StartInfo = info, EnableRaisingEvents = true };
+        process.OutputDataReceived += (_, e) => { if (e.Data is not null) AppendLog(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) AppendLog("ERRO: " + e.Data); };
+        process.Exited += (_, _) => AppendLog($"Processo WSL encerrado com código {process.ExitCode}.");
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        _wslProcess = process;
+        AppendLog($"Iniciado em {DateTime.Now:yyyy-MM-dd HH:mm:ss}: {target.Distro} {target.ProjectPath} usuário={target.User}");
+    }
+
+    private async Task StopConflictingWebtoolsAsync(WslTarget target, CancellationToken cancellationToken)
+    {
+        await StopExistingWebtoolAsync(target, cancellationToken);
+
+        List<string> distros;
+        try { distros = await ListDistributionsAsync(cancellationToken); }
+        catch { distros = new List<string>(); }
+        const string command =
+            "for proc in /proc/[0-9]*; do " +
+            "cwd=$(readlink \"$proc/cwd\" 2>/dev/null || true); " +
+            "case \"$cwd\" in */MK-Viral-Assembly/webtool|*/MK-Viral-Assembly/webtool/*) " +
+            "kill -TERM \"${proc##*/}\" 2>/dev/null || true ;; esac; done";
+        foreach (var distro in distros.Where(value =>
+                     !value.Equals(target.Distro, StringComparison.OrdinalIgnoreCase)))
+        {
+            var result = await RunWslCaptureAsync(distro, command, cancellationToken);
+            if (result.ExitCode != 0 && !string.IsNullOrWhiteSpace(result.Output))
+                AppendLog($"Não foi possível verificar serviços antigos em {distro}: {result.Output.Trim()}");
+        }
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var apiActive = await ReturnsSuccessAsync("http://127.0.0.1:8787/api/health", cancellationToken);
+            var uiActive = await ReturnsSuccessAsync("http://127.0.0.1:3000/", cancellationToken);
+            if (!apiActive && !uiActive) return;
+            await Task.Delay(250, cancellationToken);
+        }
+
+        throw new InvalidOperationException(
+            "Uma instância anterior da WebTool continua ativa nas portas 3000 ou 8787. " +
+            "Feche outras janelas do MK-Viral-Assembly e tente novamente.");
     }
 
     private async Task StopExistingWebtoolAsync(WslTarget target, CancellationToken cancellationToken)
@@ -407,7 +481,7 @@ internal sealed class LauncherEngine : IDisposable
                       "case \"$cwd\" in \"$PROJECT/webtool\"|\"$PROJECT/webtool/\"*) " +
                       "kill -TERM \"${proc##*/}\" 2>/dev/null || true ;; esac; done; " +
                       "sleep 1";
-        var result = await RunWslCaptureAsync(target.Distro, command, cancellationToken);
+        var result = await RunWslCaptureAsync(target.Distro, command, cancellationToken, target.User);
         if (result.ExitCode != 0)
             AppendLog("Falha ao encerrar servico antigo: " + result.Output.Trim());
     }
@@ -418,8 +492,21 @@ internal sealed class LauncherEngine : IDisposable
         var result = await RunWslCaptureAsync(
             target.Distro,
             $"test -x {project}/webtool/start-local.sh && test -f {project}/main.nf",
-            cancellationToken);
+            cancellationToken,
+            target.User);
         return result.ExitCode == 0;
+    }
+
+    private async Task<WslTarget> ResolveTargetUserAsync(WslTarget target, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(target.User)) return target;
+        var project = ShellQuote(target.ProjectPath);
+        var result = await RunWslCaptureAsync(
+            target.Distro,
+            $"stat -c %U {project}",
+            cancellationToken);
+        var user = result.Output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+        return target with { User = user };
     }
 
     private static async Task<List<string>> ListDistributionsAsync(CancellationToken cancellationToken)
@@ -484,7 +571,8 @@ internal sealed class LauncherEngine : IDisposable
     private async Task<(int ExitCode, string Output)> RunWslStreamingAsync(
         string distro,
         string shellCommand,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? user = null)
     {
         var info = new ProcessStartInfo("wsl.exe")
         {
@@ -497,6 +585,11 @@ internal sealed class LauncherEngine : IDisposable
         };
         info.ArgumentList.Add("-d");
         info.ArgumentList.Add(distro);
+        if (!string.IsNullOrWhiteSpace(user))
+        {
+            info.ArgumentList.Add("-u");
+            info.ArgumentList.Add(user);
+        }
         info.ArgumentList.Add("--");
         info.ArgumentList.Add("bash");
         info.ArgumentList.Add("-lc");
@@ -560,7 +653,7 @@ internal sealed class LauncherEngine : IDisposable
             .Where(parts => parts.Length == 2)
             .ToDictionary(parts => parts[0].Trim(), parts => parts[1].Trim(), StringComparer.OrdinalIgnoreCase);
         return values.TryGetValue("distro", out var distro) && values.TryGetValue("project", out var project)
-            ? new WslTarget(distro, project)
+            ? new WslTarget(distro, project, values.GetValueOrDefault("user", string.Empty))
             : null;
     }
 
@@ -570,14 +663,37 @@ internal sealed class LauncherEngine : IDisposable
         File.WriteAllLines(Path.Combine(_dataDir, "launcher.conf"), new[]
         {
             $"distro={target.Distro}",
-            $"project={target.ProjectPath}"
+            $"project={target.ProjectPath}",
+            $"user={target.User}"
         });
+    }
+
+    private void ClearRecentOutput()
+    {
+        lock (_logLock) _recentOutput.Clear();
+    }
+
+    private string LastRecentError()
+    {
+        lock (_logLock)
+        {
+            return _recentOutput
+                .Reverse()
+                .FirstOrDefault(line =>
+                    !line.StartsWith("Processo WSL encerrado", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(line)) ?? string.Empty;
+        }
     }
 
     private void AppendLog(string message)
     {
         lock (_logLock)
         {
+            foreach (var line in message.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                _recentOutput.Enqueue(line.Trim());
+                while (_recentOutput.Count > 30) _recentOutput.Dequeue();
+            }
             Directory.CreateDirectory(_dataDir);
             File.AppendAllText(LogPath, $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
         }
@@ -1239,6 +1355,16 @@ internal static class Diagnostics
         using var engine = new LauncherEngine();
         var messages = new List<string>();
         engine.Message += messages.Add;
+        var pickerDirectory = Path.Combine(
+            Path.GetTempPath(), "mkva-launcher-diagnostic-" + Guid.NewGuid().ToString("N"));
+        using var heartbeatCancellation = new CancellationTokenSource();
+        Task? heartbeatTask = null;
+        if (startService)
+        {
+            Directory.CreateDirectory(pickerDirectory);
+            engine.PickerDirectory = pickerDirectory;
+            heartbeatTask = MaintainHeartbeatAsync(pickerDirectory, heartbeatCancellation.Token);
+        }
         try
         {
             var target = await engine.DetectAsync();
@@ -1267,6 +1393,28 @@ internal static class Diagnostics
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
             await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
             return 1;
+        }
+        finally
+        {
+            heartbeatCancellation.Cancel();
+            if (heartbeatTask is not null)
+            {
+                try { await heartbeatTask; }
+                catch (OperationCanceledException) { }
+            }
+            try { Directory.Delete(pickerDirectory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private static async Task MaintainHeartbeatAsync(string directory, CancellationToken cancellationToken)
+    {
+        var heartbeat = Path.Combine(directory, "heartbeat");
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await File.WriteAllTextAsync(heartbeat, DateTime.UtcNow.ToString("O"), cancellationToken);
+            await Task.Delay(500, cancellationToken);
         }
     }
 }
