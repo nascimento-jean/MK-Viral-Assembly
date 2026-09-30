@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPOSITORY="${MKVA_REPOSITORY:-https://github.com/nascimento-jean/MK-Viral-Assembly}"
 RELEASE_REF="${MKVA_RELEASE_REF:-main}"
-RELEASE_REVISION="${MKVA_RELEASE_REVISION:-startup-recovery-2026-09-30}"
+RELEASE_REVISION="${MKVA_RELEASE_REVISION:-service-lifecycle-2026-09-30}"
 INSTALL_DIR="${MKVA_INSTALL_DIR:-$HOME/MK-Viral-Assembly}"
 MINIFORGE_DIR="${MKVA_CONDA_DIR:-$HOME/miniforge3}"
 WORK_DIR="$(mktemp -d -t mkva-install-XXXXXX)"
@@ -64,7 +64,7 @@ PY_DOWNLOAD
   mkdir -p "$WORK_DIR/source"
   tar -xzf "$ARCHIVE" -C "$WORK_DIR/source" --strip-components=1
   [[ -f "$WORK_DIR/source/main.nf" ]] || fail "The downloaded release is not a valid MK-Viral-Assembly package."
-  chmod +x "$WORK_DIR/source/webtool/start-local.sh" "$WORK_DIR/source/webtool/verify-install.sh"
+  chmod +x "$WORK_DIR/source/webtool/start-local.sh" "$WORK_DIR/source/webtool/stop-local.py" "$WORK_DIR/source/webtool/verify-install.sh"
   if [[ -e "$INSTALL_DIR" ]]; then
     status "Updating the managed MK-Viral-Assembly installation..."
     cp -a "$WORK_DIR/source/." "$INSTALL_DIR/"

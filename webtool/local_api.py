@@ -802,6 +802,7 @@ class Handler(BaseHTTPRequestHandler):
             self.file_response(file.read_bytes(), content_type, file.name); return
         if path == "/api/health":
             self.json_response(200, {"ok": True, "project": str(PROJECT_DIR),
+                                     "service_protocol": 2,
                                      "nextflow": str(NEXTFLOW), "nextflow_available": NEXTFLOW.exists(),
                                      "default_profile": DEFAULT_PROFILE,
                                      "singularity_available": bool(shutil.which("singularity") or shutil.which("apptainer")),

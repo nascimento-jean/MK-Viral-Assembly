@@ -17,9 +17,10 @@ source_root="$TEST_ROOT/source/MK-Viral-Assembly-vtest"
 mkdir -p "$source_root/webtool"
 printf 'nextflow.enable.dsl=2\n' > "$source_root/main.nf"
 printf '#!/usr/bin/env bash\n' > "$source_root/webtool/start-local.sh"
+printf '#!/usr/bin/env python3\n' > "$source_root/webtool/stop-local.py"
 printf '#!/usr/bin/env bash\n' > "$source_root/webtool/verify-install.sh"
 printf 'updated\n' > "$source_root/release-file.txt"
-chmod +x "$source_root/webtool/start-local.sh" "$source_root/webtool/verify-install.sh"
+chmod +x "$source_root/webtool/start-local.sh" "$source_root/webtool/stop-local.py" "$source_root/webtool/verify-install.sh"
 
 repository="$TEST_ROOT/repository"
 mkdir -p "$repository/archive/refs/tags"
@@ -38,7 +39,7 @@ printf 'obsolete\n' > "$install/webtool/native_picker.cs"
 output="$(
   MKVA_REPOSITORY="file://$repository" \
   MKVA_RELEASE_REF=vtest \
-  MKVA_RELEASE_REVISION=startup-recovery-2026-09-30 \
+  MKVA_RELEASE_REVISION=service-lifecycle-2026-09-30 \
   MKVA_INSTALL_DIR="$install" \
   MKVA_BOOTSTRAP_SOURCE_TEST=1 \
   bash "$ROOT/windows-launcher/bootstrap-wsl.sh"

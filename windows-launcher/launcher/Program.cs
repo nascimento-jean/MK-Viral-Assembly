@@ -69,7 +69,7 @@ internal sealed class LauncherEngine : IDisposable
         "MK-Viral-Assembly");
 
     private const string ReleaseRef = "v1.2.4";
-    private const string ReleaseRevision = "startup-recovery-2026-09-30";
+    private const string ReleaseRevision = "service-lifecycle-2026-09-30";
     public string? PickerDirectory { get; set; }
     public event Action<string>? Message;
     public string LogPath => Path.Combine(_dataDir, "launcher.log");
@@ -335,6 +335,9 @@ internal sealed class LauncherEngine : IDisposable
             using var response = await Http.GetAsync("http://127.0.0.1:8787/api/health", cancellationToken);
             if (!response.IsSuccessStatusCode) return false;
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            if (!document.RootElement.TryGetProperty("service_protocol", out var serviceProtocol) ||
+                serviceProtocol.GetInt32() != 2)
+                return false;
             if (!document.RootElement.TryGetProperty("picker_bridge", out var bridge) || !bridge.GetBoolean())
                 return false;
             if (!document.RootElement.TryGetProperty("picker_protocol", out var protocol) ||
@@ -441,25 +444,27 @@ internal sealed class LauncherEngine : IDisposable
 
     private async Task StopConflictingWebtoolsAsync(WslTarget target, CancellationToken cancellationToken)
     {
+        var recognizedMkva = await IsMkvaServiceAsync(cancellationToken);
+        if (recognizedMkva)
+            AppendLog("Instancia MK-Viral-Assembly anterior identificada; iniciando substituicao controlada.");
+
         await StopExistingWebtoolAsync(target, cancellationToken);
 
         List<string> distros;
         try { distros = await ListDistributionsAsync(cancellationToken); }
         catch { distros = new List<string>(); }
         const string command =
-            "for proc in /proc/[0-9]*; do " +
-            "cwd=$(readlink \"$proc/cwd\" 2>/dev/null || true); " +
-            "case \"$cwd\" in */MK-Viral-Assembly/webtool|*/MK-Viral-Assembly/webtool/*) " +
-            "kill -TERM \"${proc##*/}\" 2>/dev/null || true ;; esac; done";
+            "for helper in /home/*/MK-Viral-Assembly/webtool/stop-local.py /root/MK-Viral-Assembly/webtool/stop-local.py; do " +
+            "if [ -f \"$helper\" ]; then python3 \"$helper\"; fi; done";
         foreach (var distro in distros.Where(value =>
                      !value.Equals(target.Distro, StringComparison.OrdinalIgnoreCase)))
         {
-            var result = await RunWslCaptureAsync(distro, command, cancellationToken);
-            if (result.ExitCode != 0 && !string.IsNullOrWhiteSpace(result.Output))
-                AppendLog($"Não foi possível verificar serviços antigos em {distro}: {result.Output.Trim()}");
+            var result = await RunWslCaptureAsync(distro, command, cancellationToken, "root");
+            if (!string.IsNullOrWhiteSpace(result.Output))
+                AppendLog($"{distro}: {result.Output.Trim()}");
         }
 
-        for (var attempt = 0; attempt < 20; attempt++)
+        for (var attempt = 0; attempt < 40; attempt++)
         {
             var apiActive = await ReturnsSuccessAsync("http://127.0.0.1:8787/api/health", cancellationToken);
             var uiActive = await ReturnsSuccessAsync("http://127.0.0.1:3000/", cancellationToken);
@@ -467,23 +472,44 @@ internal sealed class LauncherEngine : IDisposable
             await Task.Delay(250, cancellationToken);
         }
 
-        throw new InvalidOperationException(
-            "Uma instância anterior da WebTool continua ativa nas portas 3000 ou 8787. " +
-            "Feche outras janelas do MK-Viral-Assembly e tente novamente.");
+        throw new InvalidOperationException(recognizedMkva
+            ? "Nao foi possivel substituir a instancia anterior do MK-Viral-Assembly nas portas 3000/8787. " +
+              $"Consulte o log em {LogPath}."
+            : "Outro programa esta usando as portas 3000 ou 8787. " +
+              "Feche esse programa e tente novamente.");
     }
 
     private async Task StopExistingWebtoolAsync(WslTarget target, CancellationToken cancellationToken)
     {
         var project = ShellQuote(target.ProjectPath);
         var command = $"PROJECT={project}; " +
-                      "for proc in /proc/[0-9]*; do " +
+                      "if [ -f \"$PROJECT/webtool/stop-local.py\" ]; then " +
+                      "python3 \"$PROJECT/webtool/stop-local.py\"; " +
+                      "else for proc in /proc/[0-9]*; do " +
                       "cwd=$(readlink \"$proc/cwd\" 2>/dev/null || true); " +
                       "case \"$cwd\" in \"$PROJECT/webtool\"|\"$PROJECT/webtool/\"*) " +
-                      "kill -TERM \"${proc##*/}\" 2>/dev/null || true ;; esac; done; " +
-                      "sleep 1";
-        var result = await RunWslCaptureAsync(target.Distro, command, cancellationToken, target.User);
+                      "kill -TERM \"${proc##*/}\" 2>/dev/null || true ;; esac; done; fi";
+        var result = await RunWslCaptureAsync(target.Distro, command, cancellationToken, "root");
+        if (!string.IsNullOrWhiteSpace(result.Output)) AppendLog(result.Output.Trim());
         if (result.ExitCode != 0)
             AppendLog("Falha ao encerrar servico antigo: " + result.Output.Trim());
+    }
+
+    private static async Task<bool> IsMkvaServiceAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await Http.GetAsync("http://127.0.0.1:8787/api/health", cancellationToken);
+            if (!response.IsSuccessStatusCode) return false;
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            return document.RootElement.TryGetProperty("ok", out var ok) && ok.GetBoolean() &&
+                   document.RootElement.TryGetProperty("project", out var project) &&
+                   (project.GetString() ?? string.Empty).Contains("MK-Viral-Assembly", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task<bool> ProbeTargetAsync(WslTarget target, CancellationToken cancellationToken)

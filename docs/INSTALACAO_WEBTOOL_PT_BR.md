@@ -164,3 +164,5 @@ sudo apt remove mk-viral-assembly-webtool
 - **A WebTool não abre no Ubuntu:** confirme que o `.deb` foi instalado com `apt`, execute `mk-viral-assembly --diagnose` e consulte `~/.local/state/mk-viral-assembly/launcher.log` e `webtool-service.log`.
 - **A versão 1.2.0 continua dizendo que está sendo preparada após concluir:** instale a versão 1.2.4 ou mais recente. Termine a sessão do Ubuntu e entre novamente uma vez para encerrar o processo antigo; depois abra o aplicativo uma única vez.
 - **Falta de espaço:** FASTQs, diretórios de trabalho do Nextflow e bancos geralmente ocupam a maior parte do disco.
+
+> **Atualização da mesma versão 1.2.4:** o launcher identifica e substitui automaticamente uma instância antiga do MK-Viral-Assembly que tenha permanecido ativa nas portas 3000/8787. Não é necessário encerrar o WSL nem apagar pastas manualmente.

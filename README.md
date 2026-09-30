@@ -57,7 +57,7 @@ Both installers create isolated environments and keep FASTQs and results local. 
 
 - the Windows picker now opens through a topmost native owner without runtime C# compilation or an encoded PowerShell command;
 - reinstalling a newer Windows launcher now updates its managed WSL source while preserving local history, results and downloaded databases;
-- the Windows launcher now replaces stale WebTool services left by an earlier installation before opening the corrected local service;
+- the Windows launcher now identifies and replaces stale MK-Viral-Assembly services by their listening sockets on ports 3000/8787 before opening the corrected local service;
 - installer links in the setup guides open the release assets directly.
 
 ## Version 1.2.3 highlights

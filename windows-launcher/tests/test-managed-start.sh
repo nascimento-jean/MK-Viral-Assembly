@@ -44,7 +44,7 @@ sleep 2
 cat > "$MARKER" <<EOF
 repository=test
 release=v1.2.4
-revision=startup-recovery-2026-09-30
+revision=service-lifecycle-2026-09-30
 EOF
 
 export MKVA_PICKER_DIR="$PICKER_DIR"

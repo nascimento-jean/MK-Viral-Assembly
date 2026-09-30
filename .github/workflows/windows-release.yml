@@ -33,6 +33,8 @@ jobs:
         run: |
           MKVA_BOOTSTRAP_TEST=1 bash windows-launcher/bootstrap-wsl.sh
           bash windows-launcher/tests/test-bootstrap-update.sh
+      - name: Validate stale Windows service replacement
+        run: python3 windows-launcher/tests/test-stop-local.py
       - name: Validate managed Windows service start
         run: |
           test_root="$(mktemp -d)"
