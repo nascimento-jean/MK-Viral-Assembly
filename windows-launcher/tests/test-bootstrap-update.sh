@@ -30,7 +30,7 @@ mkdir -p "$install/webtool/.local-data" "$install/assets/blast_refseq_viral"
 printf 'old\n' > "$install/main.nf"
 printf '#!/usr/bin/env bash\n' > "$install/webtool/start-local.sh"
 chmod +x "$install/webtool/start-local.sh"
-printf 'repository=old\nrelease=vold\n' > "$install/.mkva-managed-install"
+printf 'repository=old\nrelease=vtest\nrevision=old-revision\n' > "$install/.mkva-managed-install"
 printf 'history\n' > "$install/webtool/.local-data/jobs.json"
 printf 'database\n' > "$install/assets/blast_refseq_viral/refseq_viral.nsq"
 printf 'obsolete\n' > "$install/webtool/native_picker.cs"
@@ -38,6 +38,7 @@ printf 'obsolete\n' > "$install/webtool/native_picker.cs"
 output="$(
   MKVA_REPOSITORY="file://$repository" \
   MKVA_RELEASE_REF=vtest \
+  MKVA_RELEASE_REVISION=picker-bridge-2026-09-29 \
   MKVA_INSTALL_DIR="$install" \
   MKVA_BOOTSTRAP_SOURCE_TEST=1 \
   bash "$ROOT/windows-launcher/bootstrap-wsl.sh"

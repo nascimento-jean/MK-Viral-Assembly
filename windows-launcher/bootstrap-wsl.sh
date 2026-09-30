@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPOSITORY="${MKVA_REPOSITORY:-https://github.com/nascimento-jean/MK-Viral-Assembly}"
 RELEASE_REF="${MKVA_RELEASE_REF:-main}"
+RELEASE_REVISION="${MKVA_RELEASE_REVISION:-picker-bridge-2026-09-29}"
 INSTALL_DIR="${MKVA_INSTALL_DIR:-$HOME/MK-Viral-Assembly}"
 MINIFORGE_DIR="${MKVA_CONDA_DIR:-$HOME/miniforge3}"
 WORK_DIR="$(mktemp -d -t mkva-install-XXXXXX)"
@@ -25,8 +26,10 @@ command -v tar >/dev/null || fail "The tar utility is required in the selected W
 
 MARKER="$INSTALL_DIR/.mkva-managed-install"
 INSTALLED_RELEASE=""
+INSTALLED_REVISION=""
 if [[ -f "$MARKER" ]]; then
   INSTALLED_RELEASE="$(sed -n 's/^release=//p' "$MARKER" | head -n 1)"
+  INSTALLED_REVISION="$(sed -n 's/^revision=//p' "$MARKER" | head -n 1)"
 fi
 
 NEEDS_SOURCE=0
@@ -35,7 +38,10 @@ if [[ ! -f "$INSTALL_DIR/main.nf" || ! -x "$INSTALL_DIR/webtool/start-local.sh" 
     fail "$INSTALL_DIR already exists but is not a managed MK-Viral-Assembly installation. Move or rename it and retry."
   fi
   NEEDS_SOURCE=1
-elif [[ -f "$MARKER" && "$INSTALLED_RELEASE" != "$RELEASE_REF" ]]; then
+elif [[ -f "$MARKER" ]] && {
+  [[ "$INSTALLED_RELEASE" != "$RELEASE_REF" ]] ||
+  [[ "$INSTALLED_REVISION" != "$RELEASE_REVISION" ]]
+}; then
   NEEDS_SOURCE=1
 fi
 
@@ -116,6 +122,7 @@ MKVA_NEXTFLOW="$CONDA_BASE/envs/nextflow/bin/nextflow" MKVA_JAVA="$CONDA_BASE/en
 cat > "$INSTALL_DIR/.mkva-managed-install" <<EOF
 repository=$REPOSITORY
 release=$RELEASE_REF
+revision=$RELEASE_REVISION
 installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 "$CONDA_EXE" clean --all -y >/dev/null 2>&1 || true

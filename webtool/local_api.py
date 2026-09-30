@@ -7,7 +7,6 @@ large FASTQ files are not duplicated.
 """
 from __future__ import annotations
 
-import base64
 import csv
 import io
 import json
@@ -19,6 +18,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -51,8 +51,14 @@ ALLOWED_INPUT_MODES = {"single", "mixed"}
 LOCK = threading.Lock()
 PROCESSES: dict[str, subprocess.Popen[str]] = {}
 
-DATA_DIR.mkdir(exist_ok=True)
-LOG_DIR.mkdir(exist_ok=True)
+
+def ensure_runtime_dirs() -> None:
+    """Recreate runtime directories if an update or cleanup removed them."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+ensure_runtime_dirs()
 
 
 def now() -> str:
@@ -98,8 +104,19 @@ PICKER_CONFIG = {
     "outdir": {"mode": "folder", "title": "Selecione o diretório de resultados"},
     "kraken_db": {"mode": "folder", "title": "Selecione o diretório do banco Kraken2"},
 }
-WINDOWS_POWERSHELL = Path("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
+PICKER_BRIDGE_DIR = Path(os.environ["MKVA_PICKER_DIR"]).resolve() if os.environ.get("MKVA_PICKER_DIR") else None
+RUNNING_IN_WSL = bool(os.environ.get("WSL_DISTRO_NAME")) or Path("/mnt/c/Windows").is_dir()
 LINUX_ZENITY = shutil.which("zenity")
+
+
+def picker_bridge_available() -> bool:
+    if PICKER_BRIDGE_DIR is None or not PICKER_BRIDGE_DIR.is_dir():
+        return False
+    try:
+        heartbeat = PICKER_BRIDGE_DIR / "heartbeat"
+        return heartbeat.is_file() and time.time() - heartbeat.stat().st_mtime <= 5
+    except OSError:
+        return False
 
 
 def windows_to_wsl_path(value: str) -> str:
@@ -131,11 +148,6 @@ def wsl_to_windows_path(value: str) -> str:
     expanded = os.path.expandvars(os.path.expanduser(text))
     converted = subprocess.run(["wslpath", "-w", expanded], capture_output=True, text=True, timeout=10, check=False)
     return converted.stdout.strip() if converted.returncode == 0 else ""
-
-
-def _powershell_value(value: str) -> str:
-    encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
-    return f"[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))"
 
 
 def _zenity_filters(file_filter: str) -> list[str]:
@@ -190,103 +202,63 @@ def _pick_linux_path(config: dict[str, str], payload: dict[str, Any]) -> dict[st
     return {"cancelled": False, "path": selected, "linux_path": selected}
 
 
+def _pick_windows_bridge(config: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    if not picker_bridge_available():
+        raise ValueError(
+            "O seletor do Windows não está conectado. Feche o MK-Viral-Assembly e abra-o novamente pelo menu Iniciar."
+        )
+
+    request_id = uuid.uuid4().hex
+    request_path = PICKER_BRIDGE_DIR / f"request-{request_id}.json"
+    response_path = PICKER_BRIDGE_DIR / f"response-{request_id}.json"
+    temporary_path = PICKER_BRIDGE_DIR / f".request-{request_id}.tmp"
+    request = {
+        "id": request_id,
+        "mode": config["mode"],
+        "title": config["title"],
+        "initial": wsl_to_windows_path(clean_text(payload.get("current"), "Caminho atual")),
+        "filter": config.get("filter", "Todos os arquivos (*.*)|*.*"),
+        "default_name": config.get("default_name", ""),
+    }
+
+    try:
+        temporary_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+        temporary_path.replace(request_path)
+        deadline = time.monotonic() + 900
+        while time.monotonic() < deadline:
+            if response_path.is_file():
+                response = json.loads(response_path.read_text(encoding="utf-8"))
+                error = str(response.get("error") or "").strip()
+                if error:
+                    raise ValueError(error)
+                selected = str(response.get("path") or "").strip()
+                if response.get("cancelled", False) or not selected:
+                    return {"cancelled": True, "path": ""}
+                return {
+                    "cancelled": False,
+                    "path": windows_to_wsl_path(selected),
+                    "windows_path": selected,
+                }
+            time.sleep(0.1)
+        raise ValueError("O seletor do Windows não respondeu. Feche o aplicativo e tente novamente.")
+    finally:
+        temporary_path.unlink(missing_ok=True)
+        request_path.unlink(missing_ok=True)
+        response_path.unlink(missing_ok=True)
+
+
 def pick_local_path(payload: dict[str, Any]) -> dict[str, Any]:
     picker = clean_text(payload.get("picker"), "Seletor", required=True)
     config = PICKER_CONFIG.get(picker)
     if not config:
         raise ValueError("Seletor de caminho não permitido")
-    if not WINDOWS_POWERSHELL.exists():
-        return _pick_linux_path(config, payload)
-    mode = config["mode"]
-    title = config["title"]
-    file_filter = config.get("filter", "Todos os arquivos (*.*)|*.*")
-    default_name = config.get("default_name", "")
-    initial = wsl_to_windows_path(clean_text(payload.get("current"), "Caminho atual"))
-    script = f"""
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Application]::EnableVisualStyles()
-$mode = {_powershell_value(mode)}
-$title = {_powershell_value(title)}
-$initial = {_powershell_value(initial)}
-$filter = {_powershell_value(file_filter)}
-$defaultName = {_powershell_value(default_name)}
-$owner = New-Object System.Windows.Forms.Form
-$owner.TopMost = $true
-$owner.ShowInTaskbar = $false
-$owner.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedToolWindow
-$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-$owner.Left = -32000
-$owner.Top = -32000
-$owner.Opacity = 0
-$dialog = $null
-try {{
-    $owner.Show()
-    [System.Windows.Forms.Application]::DoEvents()
-    $null = $owner.Activate()
-    if ($mode -eq 'folder') {{
-        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dialog.Description = $title
-        $dialog.ShowNewFolderButton = $true
-        if ($initial) {{
-            if (Test-Path -LiteralPath $initial -PathType Leaf) {{ $dialog.SelectedPath = Split-Path -Parent $initial }}
-            else {{ $dialog.SelectedPath = $initial }}
-        }}
-        if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath))) }}
-    }} elseif ($mode -eq 'save') {{
-        $dialog = New-Object System.Windows.Forms.SaveFileDialog
-        $dialog.Title = $title
-        $dialog.Filter = $filter
-        $dialog.DefaultExt = 'csv'
-        $dialog.AddExtension = $true
-        $dialog.OverwritePrompt = $true
-        if ($initial) {{
-            if (Test-Path -LiteralPath $initial -PathType Container) {{ $dialog.InitialDirectory = $initial }}
-            else {{
-                $parent = Split-Path -Parent $initial
-                if ($parent -and (Test-Path -LiteralPath $parent -PathType Container)) {{ $dialog.InitialDirectory = $parent }}
-                $dialog.FileName = Split-Path -Leaf $initial
-            }}
-        }} elseif ($defaultName) {{ $dialog.FileName = $defaultName }}
-        if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.FileName))) }}
-    }} else {{
-        $dialog = New-Object System.Windows.Forms.OpenFileDialog
-        $dialog.Title = $title
-        $dialog.Filter = $filter
-        $dialog.CheckFileExists = $true
-        $dialog.Multiselect = $false
-        if ($initial) {{
-            if (Test-Path -LiteralPath $initial -PathType Leaf) {{
-                $dialog.InitialDirectory = Split-Path -Parent $initial
-                $dialog.FileName = Split-Path -Leaf $initial
-            }} elseif (Test-Path -LiteralPath $initial -PathType Container) {{ $dialog.InitialDirectory = $initial }}
-        }}
-        if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {{ [Console]::Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($dialog.FileName))) }}
-    }}
-}} finally {{
-    if ($null -ne $dialog) {{ $dialog.Dispose() }}
-    if ($null -ne $owner) {{ $owner.Close(); $owner.Dispose() }}
-}}
-"""
-    try:
-        completed = subprocess.run(
-            [str(WINDOWS_POWERSHELL), "-NoProfile", "-NonInteractive", "-STA", "-Command", "-"],
-            input=script.encode("ascii"), capture_output=True, text=False, timeout=900, check=False,
+    if PICKER_BRIDGE_DIR is not None:
+        return _pick_windows_bridge(config, payload)
+    if RUNNING_IN_WSL:
+        raise ValueError(
+            "O seletor do Windows não está conectado. Feche o MK-Viral-Assembly e abra-o novamente pelo menu Iniciar."
         )
-    except OSError as exc:
-        raise ValueError("Não foi possível iniciar o seletor nativo do Windows") from exc
-    selected_token = completed.stdout.strip()
-    if completed.returncode != 0:
-        detail = completed.stderr.decode("utf-8", errors="replace").strip().splitlines()
-        reason = detail[-1].strip() if detail else f"código {completed.returncode}"
-        raise ValueError(f"Não foi possível abrir o seletor nativo do Windows ({reason})")
-    if not selected_token:
-        return {"cancelled": True, "path": ""}
-    try:
-        selected = base64.b64decode(selected_token, validate=True).decode("utf-8")
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise ValueError("O caminho selecionado não pôde ser decodificado") from exc
-    return {"cancelled": False, "path": windows_to_wsl_path(selected), "windows_path": selected}
+    return _pick_linux_path(config, payload)
 
 
 def generate_samplesheet(payload: dict[str, Any]) -> dict[str, Any]:
@@ -388,6 +360,7 @@ JOBS = load_jobs()
 
 
 def save_jobs() -> None:
+    ensure_runtime_dirs()
     STATE_FILE.write_text(json.dumps(JOBS, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -521,6 +494,7 @@ def dispatch_next() -> dict[str, Any] | None:
                 return None
             job = waiting[0]
             log_path = Path(job["log"])
+            log_path.parent.mkdir(parents=True, exist_ok=True)
             log_handle = log_path.open("a", encoding="utf-8")
             env = os.environ.copy()
             env["JAVA_CMD"] = JAVA_CMD
@@ -568,6 +542,7 @@ def monitor(job_id: str, process: subprocess.Popen[str], log_handle: Any) -> Non
 def start_job(payload: dict[str, Any]) -> dict[str, Any]:
     cmd, normalized = build_command(payload)
     job_id = f"MKVA-{datetime.now():%Y%m%d}-{uuid.uuid4().hex[:6].upper()}"
+    ensure_runtime_dirs()
     log_path = LOG_DIR / f"{job_id}.log"
     Path(normalized["outdir"]).mkdir(parents=True, exist_ok=True)
     log_path.touch()
@@ -830,6 +805,8 @@ class Handler(BaseHTTPRequestHandler):
                                      "nextflow": str(NEXTFLOW), "nextflow_available": NEXTFLOW.exists(),
                                      "default_profile": DEFAULT_PROFILE,
                                      "singularity_available": bool(shutil.which("singularity") or shutil.which("apptainer")),
+                                     "picker_bridge": picker_bridge_available(),
+                                     "picker_protocol": 1,
                                      "jobs": len(JOBS)})
             return
         if path == "/api/jobs":

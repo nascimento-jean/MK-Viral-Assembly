@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MkViralAssembly.WindowsLauncher;
 
@@ -24,7 +26,28 @@ internal static class Program
             return;
         }
 
+        if (args.Length > 0 && args[0].Equals("--test-native-pickers", StringComparison.OrdinalIgnoreCase))
+        {
+            ApplicationConfiguration.Initialize();
+            var report = args.Length > 1 ? args[1] : Path.Combine(Path.GetTempPath(), "mkva-native-picker-test.json");
+            Environment.ExitCode = NativePickerDiagnostics.Write(report);
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
+        using var singleInstance = new Mutex(
+            initiallyOwned: true,
+            name: @"Local\MK-Viral-Assembly-Launcher",
+            createdNew: out var createdNew);
+        if (!createdNew)
+        {
+            MessageBox.Show(
+                "O MK-Viral-Assembly ja esta em execucao. Use a janela aberta ou o icone proximo ao relogio.",
+                "MK-Viral-Assembly",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
         Application.Run(new LauncherContext());
     }
 }
@@ -45,6 +68,8 @@ internal sealed class LauncherEngine : IDisposable
         "MK-Viral-Assembly");
 
     private const string ReleaseRef = "v1.2.4";
+    private const string ReleaseRevision = "picker-bridge-2026-09-29";
+    public string? PickerDirectory { get; set; }
     public event Action<string>? Message;
     public string LogPath => Path.Combine(_dataDir, "launcher.log");
     public WslTarget? Target { get; private set; }
@@ -102,14 +127,22 @@ internal sealed class LauncherEngine : IDisposable
         var project = ShellQuote(target.ProjectPath);
         var current = await RunWslCaptureAsync(
             target.Distro,
-            $"if [ -f {project}/.mkva-managed-install ]; then sed -n 's/^release=//p' {project}/.mkva-managed-install | head -n 1; fi",
+            $"if [ -f {project}/.mkva-managed-install ]; then " +
+            $"release=$(sed -n 's/^release=//p' {project}/.mkva-managed-install | head -n 1); " +
+            $"revision=$(sed -n 's/^revision=//p' {project}/.mkva-managed-install | head -n 1); " +
+            "printf '%s|%s' \"$release\" \"$revision\"; fi",
             cancellationToken);
         if (current.ExitCode != 0) return;
 
-        var installedRef = current.Output.Trim();
-        if (installedRef.Length == 0 || installedRef.Equals(ReleaseRef, StringComparison.Ordinal)) return;
+        var parts = current.Output.Trim().Split('|', 2);
+        var installedRef = parts.ElementAtOrDefault(0) ?? string.Empty;
+        var installedRevision = parts.ElementAtOrDefault(1) ?? string.Empty;
+        if (installedRef.Length == 0) return;
+        if (installedRef.Equals(ReleaseRef, StringComparison.Ordinal) &&
+            installedRevision.Equals(ReleaseRevision, StringComparison.Ordinal)) return;
 
         Message?.Invoke($"Atualizando a instalação gerenciada de {installedRef} para {ReleaseRef}...");
+        await StopExistingWebtoolAsync(target, cancellationToken);
         await RunBootstrapAsync(target.Distro, target.ProjectPath, cancellationToken);
     }
 
@@ -174,7 +207,9 @@ internal sealed class LauncherEngine : IDisposable
         var installExport = string.IsNullOrWhiteSpace(installDir)
             ? string.Empty
             : $" export MKVA_INSTALL_DIR={ShellQuote(installDir)};";
-        var shellCommand = $"export MKVA_RELEASE_REF={ShellQuote(ReleaseRef)};{installExport} printf '%s' '{encoded}' | base64 -d | bash";
+        var shellCommand = $"export MKVA_RELEASE_REF={ShellQuote(ReleaseRef)}; " +
+                           $"export MKVA_RELEASE_REVISION={ShellQuote(ReleaseRevision)};{installExport} " +
+                           $"printf '%s' '{encoded}' | base64 -d | bash";
         var result = await RunWslStreamingAsync(distro, shellCommand, cancellationToken);
         AppendLog(result.Output);
         if (result.ExitCode != 0)
@@ -219,6 +254,11 @@ internal sealed class LauncherEngine : IDisposable
         }
 
         var target = Target ?? await DetectAsync(cancellationToken);
+        if (await ReturnsSuccessAsync("http://127.0.0.1:8787/api/health", cancellationToken))
+        {
+            Message?.Invoke("Reiniciando um serviço antigo para ativar o seletor do Windows...");
+            await StopExistingWebtoolAsync(target, cancellationToken);
+        }
         Message?.Invoke($"Iniciando {target.Distro} silenciosamente...");
         StartWsl(target);
 
@@ -246,8 +286,22 @@ internal sealed class LauncherEngine : IDisposable
 
     public static async Task<bool> IsReadyAsync(CancellationToken cancellationToken = default)
     {
-        return await ReturnsSuccessAsync("http://127.0.0.1:8787/api/health", cancellationToken) &&
-               await ReturnsSuccessAsync("http://127.0.0.1:3000/", cancellationToken);
+        try
+        {
+            using var response = await Http.GetAsync("http://127.0.0.1:8787/api/health", cancellationToken);
+            if (!response.IsSuccessStatusCode) return false;
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            if (!document.RootElement.TryGetProperty("picker_bridge", out var bridge) || !bridge.GetBoolean())
+                return false;
+            if (!document.RootElement.TryGetProperty("picker_protocol", out var protocol) ||
+                protocol.GetInt32() != 1)
+                return false;
+            return await ReturnsSuccessAsync("http://127.0.0.1:3000/", cancellationToken);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public void OpenApplication()
@@ -302,7 +356,10 @@ internal sealed class LauncherEngine : IDisposable
     private void StartWsl(WslTarget target)
     {
         var project = ShellQuote(target.ProjectPath);
-        var command = $"set -e; PROJECT={project}; cd \"$PROJECT/webtool\"; " +
+        var pickerExport = string.IsNullOrWhiteSpace(PickerDirectory)
+            ? string.Empty
+            : $"export MKVA_PICKER_DIR=$(wslpath -a -u {ShellQuote(PickerDirectory)}); ";
+        var command = $"set -e; PROJECT={project}; {pickerExport}cd \"$PROJECT/webtool\"; " +
                       "BASE=''; for b in \"$HOME/miniconda3\" \"$HOME/anaconda3\" \"$HOME/miniforge3\" \"$HOME/mambaforge\"; do " +
                       "if [ -x \"$b/envs/mkva-webtool/bin/npm\" ]; then BASE=\"$b\"; break; fi; done; " +
                       "if [ -z \"$BASE\" ] && command -v conda >/dev/null 2>&1; then BASE=\"$(conda info --base)\"; fi; " +
@@ -339,6 +396,20 @@ internal sealed class LauncherEngine : IDisposable
         _wslProcess.BeginOutputReadLine();
         _wslProcess.BeginErrorReadLine();
         AppendLog($"Iniciado em {DateTime.Now:yyyy-MM-dd HH:mm:ss}: {target.Distro} {target.ProjectPath}");
+    }
+
+    private async Task StopExistingWebtoolAsync(WslTarget target, CancellationToken cancellationToken)
+    {
+        var project = ShellQuote(target.ProjectPath);
+        var command = $"PROJECT={project}; " +
+                      "for proc in /proc/[0-9]*; do " +
+                      "cwd=$(readlink \"$proc/cwd\" 2>/dev/null || true); " +
+                      "case \"$cwd\" in \"$PROJECT/webtool\"|\"$PROJECT/webtool/\"*) " +
+                      "kill -TERM \"${proc##*/}\" 2>/dev/null || true ;; esac; done; " +
+                      "sleep 1";
+        var result = await RunWslCaptureAsync(target.Distro, command, cancellationToken);
+        if (result.ExitCode != 0)
+            AppendLog("Falha ao encerrar servico antigo: " + result.Output.Trim());
     }
 
     private async Task<bool> ProbeTargetAsync(WslTarget target, CancellationToken cancellationToken)
@@ -520,10 +591,421 @@ internal sealed class LauncherEngine : IDisposable
     private static string ShellQuote(string value) => "'" + value.Replace("'", "'\\''") + "'";
 }
 
+
+internal sealed record PickerRequest(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("mode")] string Mode,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("initial")] string Initial,
+    [property: JsonPropertyName("filter")] string Filter,
+    [property: JsonPropertyName("default_name")] string DefaultName);
+
+internal sealed record PickerResponse(
+    [property: JsonPropertyName("cancelled")] bool Cancelled,
+    [property: JsonPropertyName("path")] string Path,
+    [property: JsonPropertyName("error")] string Error = "");
+
+internal sealed record PickerDialogOutcome(
+    DialogResult Result,
+    string Path,
+    bool TopmostObserved,
+    bool ForegroundObserved);
+
+internal sealed class NativePickerBridge : IDisposable
+{
+    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 100 };
+    private readonly string _heartbeatPath;
+    private DateTime _lastHeartbeat = DateTime.MinValue;
+    private bool _processing;
+
+    public string DirectoryPath { get; }
+
+    public NativePickerBridge()
+    {
+        DirectoryPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MK-Viral-Assembly", "picker");
+        Directory.CreateDirectory(DirectoryPath);
+        _heartbeatPath = System.IO.Path.Combine(DirectoryPath, "heartbeat");
+        CleanupStaleFiles();
+        UpdateHeartbeat(force: true);
+        _timer.Tick += ProcessRequests;
+        _timer.Start();
+    }
+
+    private void CleanupStaleFiles()
+    {
+        foreach (var pattern in new[] { "request-*.json", "response-*.json", ".request-*.tmp", ".response-*.tmp" })
+        {
+            foreach (var file in Directory.EnumerateFiles(DirectoryPath, pattern))
+            {
+                try { File.Delete(file); } catch (IOException) { }
+            }
+        }
+    }
+
+    private void UpdateHeartbeat(bool force = false)
+    {
+        var current = DateTime.UtcNow;
+        if (!force && current - _lastHeartbeat < TimeSpan.FromSeconds(1)) return;
+        try
+        {
+            if (File.Exists(_heartbeatPath))
+                File.SetLastWriteTimeUtc(_heartbeatPath, current);
+            else
+                File.WriteAllText(_heartbeatPath, current.ToString("O"));
+            _lastHeartbeat = current;
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private void ProcessRequests(object? sender, EventArgs e)
+    {
+        UpdateHeartbeat();
+        if (_processing) return;
+        var requestPath = Directory.EnumerateFiles(DirectoryPath, "request-*.json")
+            .OrderBy(File.GetCreationTimeUtc)
+            .FirstOrDefault();
+        if (requestPath is null) return;
+
+        _processing = true;
+        try
+        {
+            PickerRequest? request = null;
+            PickerResponse response;
+            try
+            {
+                request = JsonSerializer.Deserialize<PickerRequest>(File.ReadAllText(requestPath));
+                if (request is null || request.Id.Length != 32 || !request.Id.All(Uri.IsHexDigit))
+                    throw new InvalidDataException("Pedido de seletor invalido.");
+                var expectedName = $"request-{request.Id}.json";
+                if (!System.IO.Path.GetFileName(requestPath).Equals(expectedName, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Identificador de seletor invalido.");
+                var outcome = NativePickerDialogs.Show(request);
+                response = new PickerResponse(
+                    outcome.Result != DialogResult.OK || string.IsNullOrWhiteSpace(outcome.Path),
+                    outcome.Result == DialogResult.OK ? outcome.Path : "");
+            }
+            catch (Exception ex)
+            {
+                var id = request?.Id;
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    id = System.IO.Path.GetFileNameWithoutExtension(requestPath)
+                        .Replace("request-", "", StringComparison.OrdinalIgnoreCase);
+                }
+                response = new PickerResponse(true, "", "Nao foi possivel abrir o seletor nativo do Windows: " + ex.Message);
+                WriteResponse(id, response);
+                return;
+            }
+
+            WriteResponse(request.Id, response);
+        }
+        finally
+        {
+            try { File.Delete(requestPath); } catch (IOException) { }
+            _processing = false;
+        }
+    }
+
+    private void WriteResponse(string id, PickerResponse response)
+    {
+        if (id.Length != 32 || !id.All(Uri.IsHexDigit)) return;
+        var responsePath = System.IO.Path.Combine(DirectoryPath, $"response-{id}.json");
+        var temporaryPath = System.IO.Path.Combine(DirectoryPath, $".response-{id}.tmp");
+        File.WriteAllText(temporaryPath, JsonSerializer.Serialize(response));
+        File.Move(temporaryPath, responsePath, true);
+    }
+
+    public void Dispose()
+    {
+        _timer.Stop();
+        _timer.Dispose();
+        try { File.Delete(_heartbeatPath); } catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+}
+
+internal static class NativePickerDialogs
+{
+    public static PickerDialogOutcome Show(PickerRequest request, bool diagnostic = false)
+    {
+        using var owner = new Form
+        {
+            Text = "MK-Viral-Assembly",
+            FormBorderStyle = FormBorderStyle.FixedToolWindow,
+            ShowInTaskbar = false,
+            StartPosition = FormStartPosition.Manual,
+            Location = new Point(-32000, -32000),
+            Size = new Size(1, 1),
+            Opacity = 0,
+            TopMost = true
+        };
+        owner.Show();
+        NativeDialogWindow.MakeTopmost(owner.Handle);
+
+        var topmostObserved = false;
+        var foregroundObserved = false;
+        var started = Stopwatch.StartNew();
+        using var promoter = new System.Windows.Forms.Timer { Interval = 40 };
+        promoter.Tick += (_, _) =>
+        {
+            var dialogs = NativeDialogWindow.PromoteThreadDialogs(owner.Handle);
+            topmostObserved |= dialogs.Any(NativeDialogWindow.IsTopmost);
+            foregroundObserved |= dialogs.Any(handle => handle == NativeDialogWindow.GetForegroundWindow());
+            if (diagnostic && started.ElapsedMilliseconds >= 900)
+            {
+                foreach (var handle in dialogs)
+                    NativeDialogWindow.Close(handle);
+            }
+        };
+        promoter.Start();
+
+        try
+        {
+            return request.Mode switch
+            {
+                "folder" => ShowFolder(owner, request, ref topmostObserved, ref foregroundObserved),
+                "file" => ShowOpen(owner, request, ref topmostObserved, ref foregroundObserved),
+                "save" => ShowSave(owner, request, ref topmostObserved, ref foregroundObserved),
+                _ => throw new InvalidDataException("Modo de seletor nao permitido.")
+            };
+        }
+        finally
+        {
+            promoter.Stop();
+            owner.Close();
+        }
+    }
+
+    private static PickerDialogOutcome ShowFolder(
+        Form owner, PickerRequest request, ref bool topmost, ref bool foreground)
+    {
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = request.Title,
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
+            SelectedPath = Directory.Exists(request.Initial) ? request.Initial : ""
+        };
+        var result = dialog.ShowDialog(owner);
+        Observe(ref topmost, ref foreground);
+        return new PickerDialogOutcome(result, result == DialogResult.OK ? dialog.SelectedPath : "", topmost, foreground);
+    }
+
+    private static PickerDialogOutcome ShowOpen(
+        Form owner, PickerRequest request, ref bool topmost, ref bool foreground)
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = request.Title,
+            Filter = NormalizeFilter(request.Filter),
+            CheckFileExists = true,
+            CheckPathExists = true,
+            RestoreDirectory = true
+        };
+        ApplyInitial(dialog, request.Initial);
+        var result = dialog.ShowDialog(owner);
+        Observe(ref topmost, ref foreground);
+        return new PickerDialogOutcome(result, result == DialogResult.OK ? dialog.FileName : "", topmost, foreground);
+    }
+
+    private static PickerDialogOutcome ShowSave(
+        Form owner, PickerRequest request, ref bool topmost, ref bool foreground)
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = request.Title,
+            Filter = NormalizeFilter(request.Filter),
+            CheckPathExists = true,
+            RestoreDirectory = true,
+            OverwritePrompt = true,
+            FileName = request.DefaultName
+        };
+        ApplyInitial(dialog, request.Initial);
+        var result = dialog.ShowDialog(owner);
+        Observe(ref topmost, ref foreground);
+        return new PickerDialogOutcome(result, result == DialogResult.OK ? dialog.FileName : "", topmost, foreground);
+    }
+
+    private static void ApplyInitial(FileDialog dialog, string initial)
+    {
+        if (string.IsNullOrWhiteSpace(initial)) return;
+        if (Directory.Exists(initial))
+        {
+            dialog.InitialDirectory = initial;
+            return;
+        }
+        var parent = System.IO.Path.GetDirectoryName(initial);
+        if (!string.IsNullOrWhiteSpace(parent) && Directory.Exists(parent))
+        {
+            dialog.InitialDirectory = parent;
+            if (File.Exists(initial)) dialog.FileName = System.IO.Path.GetFileName(initial);
+        }
+    }
+
+    private static string NormalizeFilter(string filter) =>
+        string.IsNullOrWhiteSpace(filter) || filter.Count(ch => ch == '|') % 2 == 0
+            ? "Todos os arquivos (*.*)|*.*"
+            : filter;
+
+    private static void Observe(ref bool topmost, ref bool foreground)
+    {
+        var dialogs = NativeDialogWindow.ThreadDialogs(IntPtr.Zero);
+        topmost |= dialogs.Any(NativeDialogWindow.IsTopmost);
+        foreground |= dialogs.Any(handle => handle == NativeDialogWindow.GetForegroundWindow());
+    }
+}
+
+internal static class NativeDialogWindow
+{
+    private const int GwlExStyle = -20;
+    private const long WsExTopmost = 0x00000008L;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpShowWindow = 0x0040;
+    private const uint WmClose = 0x0010;
+    private static readonly IntPtr HwndTopmost = new(-1);
+
+    internal delegate bool EnumThreadDelegate(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumThreadWindows(uint threadId, EnumThreadDelegate callback, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    public static List<IntPtr> ThreadDialogs(IntPtr owner)
+    {
+        var windows = new List<IntPtr>();
+        EnumThreadWindows(GetCurrentThreadId(), (handle, _) =>
+        {
+            if (handle != owner && IsWindowVisible(handle))
+                windows.Add(handle);
+            return true;
+        }, IntPtr.Zero);
+        return windows;
+    }
+
+    public static List<IntPtr> PromoteThreadDialogs(IntPtr owner)
+    {
+        var dialogs = ThreadDialogs(owner);
+        foreach (var handle in dialogs)
+            ActivateTopmost(handle);
+        return dialogs;
+    }
+
+    public static void MakeTopmost(IntPtr handle) =>
+        SetWindowPos(handle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
+
+    public static void ActivateTopmost(IntPtr handle)
+    {
+        MakeTopmost(handle);
+        var currentThread = GetCurrentThreadId();
+        var foreground = GetForegroundWindow();
+        var foregroundThread = foreground == IntPtr.Zero
+            ? 0
+            : GetWindowThreadProcessId(foreground, out _);
+        var attached = foregroundThread != 0 && foregroundThread != currentThread &&
+                       AttachThreadInput(currentThread, foregroundThread, true);
+        try
+        {
+            BringWindowToTop(handle);
+            SetForegroundWindow(handle);
+            SetFocus(handle);
+        }
+        finally
+        {
+            if (attached) AttachThreadInput(currentThread, foregroundThread, false);
+        }
+    }
+
+    public static bool IsTopmost(IntPtr handle) =>
+        (GetWindowLongPtr(handle, GwlExStyle).ToInt64() & WsExTopmost) != 0;
+
+    public static void Close(IntPtr handle) =>
+        PostMessage(handle, WmClose, IntPtr.Zero, IntPtr.Zero);
+}
+
+internal static class NativePickerDiagnostics
+{
+    public static int Write(string reportPath)
+    {
+        var requests = new[]
+        {
+            new PickerRequest(new string('1', 32), "folder", "Teste de pasta", "", "", ""),
+            new PickerRequest(new string('2', 32), "file", "Teste de arquivo", "", "Todos os arquivos (*.*)|*.*", ""),
+            new PickerRequest(new string('3', 32), "save", "Teste de salvamento", "", "Texto (*.txt)|*.txt", "teste.txt")
+        };
+        var tests = new List<object>();
+        var ok = true;
+        foreach (var request in requests)
+        {
+            try
+            {
+                var outcome = NativePickerDialogs.Show(request, diagnostic: true);
+                var passed = outcome.Result == DialogResult.Cancel && outcome.TopmostObserved;
+                ok &= passed;
+                tests.Add(new
+                {
+                    kind = request.Mode,
+                    result = outcome.Result.ToString(),
+                    topmost = outcome.TopmostObserved,
+                    foreground = outcome.ForegroundObserved,
+                    ok = passed
+                });
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                tests.Add(new { kind = request.Mode, result = "Error", topmost = false, foreground = false, ok = false, error = ex.Message });
+            }
+        }
+
+        var fullPath = System.IO.Path.GetFullPath(reportPath);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(fullPath)!);
+        File.WriteAllText(fullPath, JsonSerializer.Serialize(new { ok, tests }, new JsonSerializerOptions { WriteIndented = true }));
+        return ok ? 0 : 1;
+    }
+}
+
 internal sealed class LauncherContext : ApplicationContext
 {
     private readonly LauncherEngine _engine = new();
     private readonly LauncherForm _form;
+    private readonly NativePickerBridge _pickerBridge;
     private readonly NotifyIcon _tray;
     private readonly CancellationTokenSource _cancellation = new();
     private bool _exiting;
@@ -531,6 +1013,8 @@ internal sealed class LauncherContext : ApplicationContext
     public LauncherContext()
     {
         _form = new LauncherForm();
+        _pickerBridge = new NativePickerBridge();
+        _engine.PickerDirectory = _pickerBridge.DirectoryPath;
         _engine.Message += message => _form.SetStatus(message);
         _form.OpenRequested += (_, _) => _engine.OpenApplication();
         _form.LogRequested += (_, _) => _engine.OpenLog();
@@ -606,6 +1090,7 @@ internal sealed class LauncherContext : ApplicationContext
         _cancellation.Cancel();
         _tray.Visible = false;
         _tray.Dispose();
+        _pickerBridge.Dispose();
         _engine.Dispose();
         _form.Close();
         ExitThread();

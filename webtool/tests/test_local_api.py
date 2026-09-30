@@ -3,6 +3,8 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -211,21 +213,86 @@ class PathConversionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "não permitido"):
             local_api.pick_local_path({"picker": "arbitrary"})
 
-    def test_picker_uses_topmost_native_owner_without_dynamic_compilation(self):
-        source = Path(local_api.__file__).read_text(encoding="utf-8")
-        self.assertIn("$owner = New-Object System.Windows.Forms.Form", source)
-        self.assertIn("$owner.TopMost = $true", source)
-        self.assertIn("$owner.Opacity = 0", source)
-        self.assertEqual(source.count("$dialog.ShowDialog($owner)"), 3)
-        self.assertNotIn("Add-Type -ReferencedAssemblies", source)
-        self.assertNotIn("-EncodedCommand", source)
-        self.assertIn('"-Command", "-"', source)
-        self.assertEqual(local_api.PICKER_CONFIG["samplesheet_output"]["mode"], "save")
-        self.assertIn("SaveFileDialog", source)
+    def test_windows_picker_uses_launcher_bridge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = Path(directory)
+            (bridge / "heartbeat").touch()
+            observed = {}
+
+            def respond():
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    requests = list(bridge.glob("request-*.json"))
+                    if requests:
+                        request = json.loads(requests[0].read_text(encoding="utf-8"))
+                        observed.update(request)
+                        response = bridge / f"response-{request['id']}.json"
+                        response.write_text(
+                            json.dumps({"cancelled": False, "path": r"D:\Dados\DENV"}),
+                            encoding="utf-8",
+                        )
+                        return
+                    time.sleep(0.01)
+                raise AssertionError("bridge request was not created")
+
+            worker = threading.Thread(target=respond)
+            worker.start()
+            with patch.object(local_api, "PICKER_BRIDGE_DIR", bridge), \
+                 patch.object(local_api, "RUNNING_IN_WSL", True):
+                result = local_api.pick_local_path({"picker": "fastq_dir", "current": ""})
+            worker.join(timeout=5)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result["path"], "/mnt/d/Dados/DENV")
+        self.assertEqual(observed["mode"], "folder")
+        self.assertEqual(observed["title"], "Selecione a pasta com os FASTQ.GZ")
+
+    def test_windows_picker_preserves_bridge_cancellation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = Path(directory)
+            (bridge / "heartbeat").touch()
+
+            def respond():
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    requests = list(bridge.glob("request-*.json"))
+                    if requests:
+                        request = json.loads(requests[0].read_text(encoding="utf-8"))
+                        (bridge / f"response-{request['id']}.json").write_text(
+                            json.dumps({"cancelled": True, "path": ""}),
+                            encoding="utf-8",
+                        )
+                        return
+                    time.sleep(0.01)
+
+            worker = threading.Thread(target=respond)
+            worker.start()
+            with patch.object(local_api, "PICKER_BRIDGE_DIR", bridge), \
+                 patch.object(local_api, "RUNNING_IN_WSL", True):
+                result = local_api.pick_local_path({"picker": "reference", "current": ""})
+            worker.join(timeout=5)
+
+        self.assertEqual(result, {"cancelled": True, "path": ""})
+
+    def test_windows_picker_rejects_stale_launcher_bridge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = Path(directory)
+            heartbeat = bridge / "heartbeat"
+            heartbeat.touch()
+            with patch.object(local_api, "PICKER_BRIDGE_DIR", bridge),                  patch.object(local_api.time, "time", return_value=heartbeat.stat().st_mtime + 10):
+                with self.assertRaisesRegex(ValueError, "abra-o novamente pelo menu Iniciar"):
+                    local_api.pick_local_path({"picker": "fastq_dir", "current": ""})
+
+    def test_wsl_without_launcher_bridge_has_clear_error(self):
+        with patch.object(local_api, "PICKER_BRIDGE_DIR", None), \
+             patch.object(local_api, "RUNNING_IN_WSL", True):
+            with self.assertRaisesRegex(ValueError, "abra-o novamente pelo menu Iniciar"):
+                local_api.pick_local_path({"picker": "fastq_dir", "current": ""})
 
     def test_linux_folder_picker_uses_zenity(self):
         completed = subprocess.CompletedProcess([], 0, stdout="/home/researcher/reads\n", stderr="")
-        with patch.object(local_api, "WINDOWS_POWERSHELL", Path("/missing/powershell.exe")), \
+        with patch.object(local_api, "PICKER_BRIDGE_DIR", None), \
+             patch.object(local_api, "RUNNING_IN_WSL", False), \
              patch.object(local_api, "LINUX_ZENITY", "/usr/bin/zenity"), \
              patch.object(local_api.subprocess, "run", return_value=completed) as run:
             result = local_api.pick_local_path({"picker": "fastq_dir", "current": "/home/researcher"})
@@ -238,7 +305,8 @@ class PathConversionTests(unittest.TestCase):
 
     def test_linux_save_picker_preserves_cancellation(self):
         completed = subprocess.CompletedProcess([], 1, stdout="", stderr="")
-        with patch.object(local_api, "WINDOWS_POWERSHELL", Path("/missing/powershell.exe")), \
+        with patch.object(local_api, "PICKER_BRIDGE_DIR", None), \
+             patch.object(local_api, "RUNNING_IN_WSL", False), \
              patch.object(local_api, "LINUX_ZENITY", "/usr/bin/zenity"), \
              patch.object(local_api.subprocess, "run", return_value=completed):
             result = local_api.pick_local_path({"picker": "samplesheet_output", "current": ""})
@@ -247,7 +315,8 @@ class PathConversionTests(unittest.TestCase):
 
     def test_linux_file_picker_translates_filters(self):
         completed = subprocess.CompletedProcess([], 0, stdout="/home/researcher/ref.fasta\n", stderr="")
-        with patch.object(local_api, "WINDOWS_POWERSHELL", Path("/missing/powershell.exe")), \
+        with patch.object(local_api, "PICKER_BRIDGE_DIR", None), \
+             patch.object(local_api, "RUNNING_IN_WSL", False), \
              patch.object(local_api, "LINUX_ZENITY", "/usr/bin/zenity"), \
              patch.object(local_api.subprocess, "run", return_value=completed) as run:
             result = local_api.pick_local_path({"picker": "reference", "current": ""})
@@ -360,6 +429,35 @@ class QueueTests(unittest.TestCase):
             self.assertEqual(second_public["queue_position"], 1)
             self.assertEqual(popen.call_count, 1)
             thread.return_value.start.assert_called_once()
+
+    def test_start_job_recreates_missing_runtime_and_log_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / ".local-data"
+            logs = data / "logs"
+            state = data / "jobs.json"
+            jobs: list[dict] = []
+            processes: dict = {}
+            running = Mock(pid=303)
+            running.poll.return_value = None
+
+            def build(payload):
+                return ["nextflow", payload["run_name"]], self.normalized(root, payload["run_name"])
+
+            with patch.object(local_api, "JOBS", jobs), patch.object(local_api, "PROCESSES", processes), \
+                 patch.object(local_api, "DATA_DIR", data), patch.object(local_api, "LOG_DIR", logs), \
+                 patch.object(local_api, "STATE_FILE", state), \
+                 patch.object(local_api, "build_command", side_effect=build), \
+                 patch.object(local_api.subprocess, "Popen", return_value=running) as popen, \
+                 patch.object(local_api.threading, "Thread"):
+                job = local_api.start_job({"run_name": "runtime-recovery"})
+
+            popen.call_args.kwargs["stdout"].close()
+            self.assertTrue(data.is_dir())
+            self.assertTrue(logs.is_dir())
+            self.assertTrue(Path(job["log"]).is_file())
+            self.assertTrue(state.is_file())
+            self.assertEqual(job["status"], "Executando")
 
     def test_completion_dispatches_oldest_queued_job(self):
         with tempfile.TemporaryDirectory() as directory:

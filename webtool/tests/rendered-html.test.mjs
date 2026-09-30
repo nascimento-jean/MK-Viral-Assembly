@@ -33,12 +33,13 @@ test("renders the MK-Viral-Assembly analysis workspace", async () => {
 });
 
 test("keeps execution local and passes validated arguments without a shell", async () => {
-  const [page, api, readme, startLocal, packageJson] = await Promise.all([
+  const [page, api, readme, startLocal, packageJson, launcher] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../local_api.py", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
     readFile(new URL("../start-local.sh", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../../windows-launcher/launcher/Program.cs", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /http:\/\/localhost:8787\/api\/health/);
@@ -80,7 +81,14 @@ test("keeps execution local and passes validated arguments without a shell", asy
   assert.ok(api.includes('"--parent"'));
   assert.ok(api.includes('"--catalog"'));
   assert.ok(api.includes('"--out"'));
-  assert.ok(api.includes("SaveFileDialog"));
+  assert.ok(api.includes("PICKER_BRIDGE_DIR"));
+  assert.ok(api.includes("picker_bridge_available"));
+  assert.ok(api.includes('"picker_protocol": 1'));
+  assert.ok(api.includes("request-"));
+  assert.ok(launcher.includes("NativePickerBridge"));
+  assert.ok(launcher.includes("FolderBrowserDialog"));
+  assert.ok(launcher.includes("OpenFileDialog"));
+  assert.ok(launcher.includes("SaveFileDialog"));
   assert.ok(api.includes("sample_records"));
   assert.ok(api.includes("is_relative_to(root)"));
   assert.ok(api.includes("rewrite_dashboard_links"));
