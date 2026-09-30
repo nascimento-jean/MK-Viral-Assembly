@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPOSITORY="${MKVA_REPOSITORY:-https://github.com/nascimento-jean/MK-Viral-Assembly}"
 RELEASE_REF="${MKVA_RELEASE_REF:-main}"
-RELEASE_REVISION="${MKVA_RELEASE_REVISION:-service-lifecycle-2026-09-30}"
+RELEASE_REVISION="${MKVA_RELEASE_REVISION:-windows-activation-picker-2026-09-30}"
 INSTALL_DIR="${MKVA_INSTALL_DIR:-$HOME/MK-Viral-Assembly}"
 MINIFORGE_DIR="${MKVA_CONDA_DIR:-$HOME/miniforge3}"
 WORK_DIR="$(mktemp -d -t mkva-install-XXXXXX)"

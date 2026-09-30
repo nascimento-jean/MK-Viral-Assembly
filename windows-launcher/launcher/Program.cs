@@ -34,21 +34,30 @@ internal static class Program
             return;
         }
 
+        if (args.Length > 0 && args[0].Equals("--test-native-picker-selection", StringComparison.OrdinalIgnoreCase))
+        {
+            ApplicationConfiguration.Initialize();
+            var report = args.Length > 1 ? args[1] : Path.Combine(Path.GetTempPath(), "mkva-native-picker-selection-test.json");
+            var directory = args.Length > 2 ? args[2] : Path.GetTempPath();
+            Environment.ExitCode = NativePickerDiagnostics.WriteSelection(report, directory);
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
+        using var activationSignal = new EventWaitHandle(
+            initialState: false,
+            mode: EventResetMode.AutoReset,
+            name: @"Local\MK-Viral-Assembly-Activate");
         using var singleInstance = new Mutex(
             initiallyOwned: true,
             name: @"Local\MK-Viral-Assembly-Launcher",
             createdNew: out var createdNew);
         if (!createdNew)
         {
-            MessageBox.Show(
-                "O MK-Viral-Assembly ja esta em execucao. Use a janela aberta ou o icone proximo ao relogio.",
-                "MK-Viral-Assembly",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            activationSignal.Set();
             return;
         }
-        Application.Run(new LauncherContext());
+        Application.Run(new LauncherContext(activationSignal));
     }
 }
 
@@ -69,7 +78,7 @@ internal sealed class LauncherEngine : IDisposable
         "MK-Viral-Assembly");
 
     private const string ReleaseRef = "v1.2.4";
-    private const string ReleaseRevision = "service-lifecycle-2026-09-30";
+    private const string ReleaseRevision = "windows-activation-picker-2026-09-30";
     public string? PickerDirectory { get; set; }
     public event Action<string>? Message;
     public string LogPath => Path.Combine(_dataDir, "launcher.log");
@@ -353,6 +362,8 @@ internal sealed class LauncherEngine : IDisposable
 
     public void OpenApplication()
     {
+        if (ApplicationWindow.TryActivateExisting()) return;
+
         var edgeCandidates = new[]
         {
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
@@ -871,7 +882,10 @@ internal sealed class NativePickerBridge : IDisposable
 
 internal static class NativePickerDialogs
 {
-    public static PickerDialogOutcome Show(PickerRequest request, bool diagnostic = false)
+    public static PickerDialogOutcome Show(
+        PickerRequest request,
+        bool diagnostic = false,
+        bool diagnosticAccept = false)
     {
         using var owner = new Form
         {
@@ -896,10 +910,20 @@ internal static class NativePickerDialogs
             var dialogs = NativeDialogWindow.PromoteThreadDialogs(owner.Handle);
             topmostObserved |= dialogs.Any(NativeDialogWindow.IsTopmost);
             foregroundObserved |= dialogs.Any(handle => handle == NativeDialogWindow.GetForegroundWindow());
+            if (!diagnostic && dialogs.Count > 0)
+            {
+                // Once the owned dialog is in front, stop forcing focus. Keeping
+                // this timer active can interrupt the Open/Select button click.
+                promoter.Stop();
+            }
             if (diagnostic && started.ElapsedMilliseconds >= 900)
             {
-                foreach (var handle in dialogs)
-                    NativeDialogWindow.Close(handle);
+                promoter.Stop();
+                if (diagnosticAccept)
+                    SendKeys.SendWait("{ENTER}");
+                else
+                    foreach (var handle in dialogs)
+                        NativeDialogWindow.Close(handle);
             }
         };
         promoter.Start();
@@ -1141,6 +1165,55 @@ internal static class NativePickerDiagnostics
         File.WriteAllText(fullPath, JsonSerializer.Serialize(new { ok, tests }, new JsonSerializerOptions { WriteIndented = true }));
         return ok ? 0 : 1;
     }
+
+    public static int WriteSelection(string reportPath, string directory)
+    {
+        var expected = System.IO.Path.GetFullPath(directory);
+        Directory.CreateDirectory(expected);
+        try
+        {
+            var request = new PickerRequest(
+                new string('4', 32),
+                "folder",
+                "Teste de confirmação de pasta",
+                expected,
+                "",
+                "");
+            var outcome = NativePickerDialogs.Show(
+                request,
+                diagnostic: true,
+                diagnosticAccept: true);
+            var selected = string.IsNullOrWhiteSpace(outcome.Path)
+                ? ""
+                : System.IO.Path.GetFullPath(outcome.Path);
+            var ok = outcome.Result == DialogResult.OK &&
+                     string.Equals(selected.TrimEnd('\\'), expected.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+            WriteSelectionReport(reportPath, new
+            {
+                ok,
+                result = outcome.Result.ToString(),
+                expected,
+                selected,
+                topmost = outcome.TopmostObserved,
+                foreground = outcome.ForegroundObserved
+            });
+            return ok ? 0 : 1;
+        }
+        catch (Exception ex)
+        {
+            WriteSelectionReport(reportPath, new { ok = false, expected, error = ex.ToString() });
+            return 1;
+        }
+    }
+
+    private static void WriteSelectionReport(string reportPath, object report)
+    {
+        var fullPath = System.IO.Path.GetFullPath(reportPath);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(fullPath)!);
+        File.WriteAllText(
+            fullPath,
+            JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+    }
 }
 
 internal sealed class LauncherContext : ApplicationContext
@@ -1150,10 +1223,14 @@ internal sealed class LauncherContext : ApplicationContext
     private readonly NativePickerBridge _pickerBridge;
     private readonly NotifyIcon _tray;
     private readonly CancellationTokenSource _cancellation = new();
+    private readonly EventWaitHandle _activationSignal;
+    private readonly RegisteredWaitHandle _activationRegistration;
     private bool _exiting;
+    private bool _ready;
 
-    public LauncherContext()
+    public LauncherContext(EventWaitHandle activationSignal)
     {
+        _activationSignal = activationSignal;
         _form = new LauncherForm();
         _pickerBridge = new NativePickerBridge();
         _engine.PickerDirectory = _pickerBridge.DirectoryPath;
@@ -1178,6 +1255,12 @@ internal sealed class LauncherContext : ApplicationContext
             ContextMenuStrip = menu
         };
         _tray.DoubleClick += (_, _) => ShowForm();
+        _activationRegistration = ThreadPool.RegisterWaitForSingleObject(
+            _activationSignal,
+            (_, _) => ActivateFromShortcut(),
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
         _form.Shown += async (_, _) => await StartAsync();
         _form.Show();
     }
@@ -1189,6 +1272,7 @@ internal sealed class LauncherContext : ApplicationContext
             var target = await _engine.DetectOrInstallAsync(_cancellation.Token);
             _form.SetEnvironment($"{target.Distro} · {target.ProjectPath}");
             await _engine.EnsureStartedAsync(_cancellation.Token);
+            _ready = true;
             _form.SetReady();
             _tray.Text = "MK-Viral-Assembly · pronta";
             _engine.OpenApplication();
@@ -1199,6 +1283,7 @@ internal sealed class LauncherContext : ApplicationContext
         }
         catch (Exception ex)
         {
+            _ready = false;
             _form.SetError(ex.Message);
             _tray.Text = "MK-Viral-Assembly · atenção necessária";
         }
@@ -1207,8 +1292,33 @@ internal sealed class LauncherContext : ApplicationContext
     private async Task StopAsync()
     {
         await _engine.StopStartedServiceAsync();
+        _ready = false;
         _form.SetStopped();
         ShowForm();
+    }
+
+    private void ActivateFromShortcut()
+    {
+        if (_exiting || _form.IsDisposed) return;
+        try
+        {
+            _form.BeginInvoke(new Action(() =>
+            {
+                if (_exiting) return;
+                if (_ready)
+                {
+                    _engine.OpenApplication();
+                    _form.Hide();
+                }
+                else
+                {
+                    ShowForm();
+                }
+            }));
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     private void ShowForm()
@@ -1232,10 +1342,60 @@ internal sealed class LauncherContext : ApplicationContext
         _cancellation.Cancel();
         _tray.Visible = false;
         _tray.Dispose();
+        _activationRegistration.Unregister(null);
         _pickerBridge.Dispose();
         _engine.Dispose();
         _form.Close();
         ExitThread();
+    }
+}
+
+internal static class ApplicationWindow
+{
+    private const int SwRestore = 9;
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    public static bool TryActivateExisting()
+    {
+        foreach (var processName in new[] { "msedge", "chrome" })
+        {
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        var handle = process.MainWindowHandle;
+                        var title = process.MainWindowTitle;
+                        if (handle == IntPtr.Zero ||
+                            !title.Contains("MK-Viral-Assembly", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (IsIconic(handle)) ShowWindow(handle, SwRestore);
+                        BringWindowToTop(handle);
+                        SetForegroundWindow(handle);
+                        return true;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                    }
+                    catch (System.ComponentModel.Win32Exception)
+                    {
+                    }
+                }
+            }
+        }
+        return false;
     }
 }
 
