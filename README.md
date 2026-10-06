@@ -73,8 +73,6 @@ Both installers create isolated environments and keep FASTQs and results local. 
 - a machine-readable `nextflow_schema.json` and regression tests for the new
   outputs and mixed-virus behavior.
 
-## Version 1.2.5 highlights
-
 - the Windows picker now opens through a topmost native owner without runtime C# compilation or an encoded PowerShell command;
 - reinstalling a newer Windows launcher now updates its managed WSL source while preserving local history, results and downloaded databases;
 - the Windows launcher now identifies and replaces stale MK-Viral-Assembly services by their listening sockets on ports 3000/8787 before opening the corrected local service;
