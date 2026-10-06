@@ -15,17 +15,18 @@ process KRAKEN2 {
     path 'versions.yml'                           , emit: versions
 
     script:
+    def read_args = meta.single_end ? "${reads[0]}" : "--paired ${reads[0]} ${reads[1]}"
     """
     kraken2 \\
         --db ${db} \\
         --threads $task.cpus \\
-        --paired ${reads[0]} ${reads[1]} \\
+        ${read_args} \\
         --report ${meta.id}.kraken2.report.txt \\
         --output ${meta.id}.kraken2.out.txt
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
-        kraken2: \$(kraken2 --version | head -n1 | sed 's/Kraken version //')
+        kraken: \$(kraken2 --version | head -n1 | sed 's/Kraken version //')
     END_VERSIONS
     """
 }

@@ -6,7 +6,7 @@ process BWA_MEM {
     container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/mulled-v2-fe8faa35dbf6dc65a0f7f5d4ea12e31a79f73e40:66ed1b38d280722529bb8a0167b0cf02f8a0b488-0' : 'quay.io/biocontainers/mulled-v2-fe8faa35dbf6dc65a0f7f5d4ea12e31a79f73e40:66ed1b38d280722529bb8a0167b0cf02f8a0b488-0' }"
 
     input:
-    tuple val(meta), path(reads), path(reference)
+    tuple val(meta), path(reads), path(reference), path(index_files)
 
     output:
     tuple val(meta), path('*.sorted.bam'), path('*.sorted.bam.bai'), path(reference), emit: bam
@@ -14,9 +14,9 @@ process BWA_MEM {
 
     script:
     def rg = "@RG\\tID:${meta.id}\\tSM:${meta.id}\\tPL:ILLUMINA"
+    def read_args = reads.join(' ')
     """
-    bwa index ${reference}
-    bwa mem -t $task.cpus -R "${rg}" ${reference} ${reads[0]} ${reads[1]} \\
+    bwa mem -t $task.cpus -R "${rg}" ${reference} ${read_args} \\
         | samtools sort -@ $task.cpus -o ${meta.id}.sorted.bam -
     samtools index -@ $task.cpus ${meta.id}.sorted.bam
 

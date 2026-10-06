@@ -95,6 +95,15 @@ def sample_code(value):
     s = s.split("|", 1)[0]
     s = re.sub(r"_S\d+.*$", "", s)
     s = re.sub(r"_L\d{3}.*$", "", s)
+    # Mixed-virus samplesheets commonly add the assay/virus between the plain
+    # clinical identifier and the Illumina suffix, e.g. SAMPLE-DENV2_S1_L001.
+    # The metadata template intentionally keeps the stable clinical identifier.
+    s = re.sub(
+        r"[-_](?:CHIKV|CHIKUNGUNYA|COV|COVID|SARS[-_]?COV[-_]?2|DENV[-_]?[1-4]|DENGUE[-_]?[1-4]|RSV[-_]?[AB]?|VSR[-_]?[AB]?|OROV|OROPOUCHE|ZIKV|ZIKA|YFV)$",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    )
     return s
 
 

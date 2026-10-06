@@ -144,7 +144,8 @@ export default function Home() {
   const [outdir, setOutdir] = useState("");
   const [krakenDb, setKrakenDb] = useState("");
   const [runName, setRunName] = useState("");
-  const [minCov, setMinCov] = useState(20), [minFreq, setMinFreq] = useState(0.75);
+  const [minCov, setMinCov] = useState(20), [consensusMinFreq, setConsensusMinFreq] = useState(0.75);
+  const [variantMinFreq, setVariantMinFreq] = useState(0.25), [trimMinLen, setTrimMinLen] = useState(30);
   const [minQual, setMinQual] = useState(20), [mapQual, setMapQual] = useState(20);
   const [cpus, setCpus] = useState(8), [memory, setMemory] = useState(16);
   const [nextclade, setNextclade] = useState(true), [blast, setBlast] = useState(false);
@@ -167,12 +168,13 @@ export default function Home() {
     inputMode === "single" && primerBed ? `--primer_bed ${primerBed}` : "",
     inputMode === "single" && gff ? `--gff ${gff}` : "",
     `--outdir ${outdir || "<results>"}`, `--run_name ${runName || "<run_name>"}`, `--min_cov ${minCov}`,
-    `--min_freq ${minFreq}`, `--min_qual ${minQual}`, `--min_map_qual ${mapQual}`,
+    `--consensus_min_freq ${consensusMinFreq}`, `--variant_min_freq ${variantMinFreq}`,
+    `--trim_min_len ${trimMinLen}`, `--min_qual ${minQual}`, `--min_map_qual ${mapQual}`,
     `--max_cpus ${cpus}`, `--max_memory ${memory}.GB`, `--nextclade ${nextclade}`,
     inputMode === "single" && nextclade && nextcladeDataset ? `--nextclade_dataset ${nextcladeDataset}` : "",
     `--blast_id ${blast}`, metadata ? `--metadata ${metadata}` : "", kraken && krakenDb ? `--kraken2_db ${krakenDb}` : "",
     deplete && kraken ? "--deplete_host true" : "", "-resume"
-  ].filter(Boolean).join(" \\\n  "), [profile, inputMode, rawDataDir, reference, primerBed, gff, samplesheet, virus, outdir, runName, minCov, minFreq, minQual, mapQual, cpus, memory, nextclade, nextcladeDataset, blast, metadata, kraken, krakenDb, deplete]);
+  ].filter(Boolean).join(" \\\n  "), [profile, inputMode, rawDataDir, reference, primerBed, gff, samplesheet, virus, outdir, runName, minCov, consensusMinFreq, variantMinFreq, trimMinLen, minQual, mapQual, cpus, memory, nextclade, nextcladeDataset, blast, metadata, kraken, krakenDb, deplete]);
 
   useEffect(() => {
     let active = true;
@@ -272,7 +274,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ run_name: runName, virus, profile, input_mode: inputMode,
           raw_data_dir: rawDataDir, reference, primer_bed: primerBed, gff, samplesheet, metadata, outdir,
-          kraken_db: krakenDb, min_cov: minCov, min_freq: minFreq, min_qual: minQual,
+          kraken_db: krakenDb, min_cov: minCov, consensus_min_freq: consensusMinFreq,
+          variant_min_freq: variantMinFreq, trim_min_len: trimMinLen, min_qual: minQual,
           min_map_qual: mapQual, max_cpus: cpus, max_memory: memory,
           nextclade, nextclade_dataset: inputMode === "single" ? nextcladeDataset : "", blast, kraken, deplete }),
       });
@@ -324,7 +327,7 @@ export default function Home() {
       <div className="brand"><div className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></div><div><strong>MK Viral</strong><span>Assembly</span></div></div>
       <div className="workspace-label">PLATAFORMA LOCAL</div>
       <nav aria-label="Navegação principal">{nav.map(item => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}{item.id === "runs" && runs.filter(run => ["Executando", "Na fila"].includes(run.status)).length > 0 && <em>{runs.filter(run => ["Executando", "Na fila"].includes(run.status)).length}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><button><span className="nav-icon">?</span>Documentação</button><button><span className="nav-icon">⚙</span>Configurações</button><div className={`local-card ${backendOnline ? "" : "offline"}`}><span className="pulse-dot"/><div><strong>Ambiente local</strong><small>{backendOnline ? "Serviço local · operacional" : "API local · desconectada"}</small></div></div><div className="version">MK-Viral-Assembly <span>v1.2.4</span></div></div>
+      <div className="sidebar-bottom"><button><span className="nav-icon">?</span>Documentação</button><button><span className="nav-icon">⚙</span>Configurações</button><div className={`local-card ${backendOnline ? "" : "offline"}`}><span className="pulse-dot"/><div><strong>Ambiente local</strong><small>{backendOnline ? "Serviço local · operacional" : "API local · desconectada"}</small></div></div><div className="version">MK-Viral-Assembly <span>v1.2.5</span></div></div>
     </aside>
     <main>
       <header className="topbar"><div><p>MK-VIRAL-ASSEMBLY</p><h1>{titles[view][0]}</h1><span>{titles[view][1]}</span></div><div className="machine"><b>MK</b><span><strong>Usuário local</strong><small>Este computador</small></span></div></header>
@@ -381,10 +384,10 @@ export default function Home() {
               {kraken && <PathField label="Banco Kraken2" value={krakenDb} setValue={setKrakenDb} picker="kraken_db" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione o diretório do banco Kraken2" className="database-field"/>}
             </article>
             <article className="panel form-panel advanced-panel"><button className="advanced-trigger" type="button" onClick={() => setAdvanced(!advanced)}><span><b>04</b><span><strong>Parâmetros avançados</strong><small>Qualidade, consenso e recursos computacionais</small></span></span><em>{advanced ? "−" : "+"}</em></button>
-              {advanced && <div className="advanced-content"><div className="parameter-grid"><NumberField label="Cobertura mínima" value={minCov} setValue={setMinCov} help="Profundidade mínima para chamar uma base."/><NumberField label="Frequência mínima" value={minFreq} setValue={setMinFreq} step="0.05" help="Frequência mínima do alelo alternativo."/><NumberField label="Qualidade da base" value={minQual} setValue={setMinQual}/><NumberField label="Qualidade de mapeamento" value={mapQual} setValue={setMapQual}/></div><div className="resource-grid"><Range label="CPUs" value={cpus} setValue={setCpus} min={2} max={16} suffix=""/><Range label="Memória" value={memory} setValue={setMemory} min={8} max={60} suffix=" GB"/></div></div>}
+              {advanced && <div className="advanced-content"><div className="parameter-grid"><NumberField label="Cobertura mínima" value={minCov} setValue={setMinCov} help="Profundidade mínima para chamar uma base no consenso."/><NumberField label="Frequência do consenso" value={consensusMinFreq} setValue={setConsensusMinFreq} step="0.05" help="Frequência mínima do alelo para entrar na sequência consenso."/><NumberField label="Frequência das variantes" value={variantMinFreq} setValue={setVariantMinFreq} step="0.05" help="Frequência mínima para registrar uma variante no TSV e no VCF."/><NumberField label="Comprimento mínimo após o corte" value={trimMinLen} setValue={setTrimMinLen} help="Tamanho mínimo, em bases, da leitura mantida após o corte de primers."/><NumberField label="Qualidade da base" value={minQual} setValue={setMinQual}/><NumberField label="Qualidade de mapeamento" value={mapQual} setValue={setMapQual}/></div><div className="resource-grid"><Range label="CPUs" value={cpus} setValue={setCpus} min={2} max={16} suffix=""/><Range label="Memória" value={memory} setValue={setMemory} min={8} max={60} suffix=" GB"/></div></div>}
             </article>
           </div>
-          <aside className="run-summary"><div className="summary-head"><span>RESUMO DA EXECUÇÃO</span><b>Pronta</b></div><div className="summary-virus"><VirusBadge virus={inputMode === "single" ? virus : "Mixed viruses"}/><div><strong>{inputMode === "single" ? virus : "Mixed viruses"}</strong><small>{profile} · Illumina paired-end</small></div></div><dl><Summary label="Execução" value={runName || "Sem nome"}/><Summary label="Entrada" value={inputMode === "single" ? "Single · pasta FASTQ" : "Mixed · samplesheet CSV"}/>{inputMode === "single" && primerBed && <Summary label="Primers" value="BED ativado"/>}{inputMode === "single" && gff && <Summary label="Anotação" value="GFF3 ativado"/>}<Summary label="Recursos" value={`${cpus} CPUs · ${memory} GB`}/><Summary label="Classificação" value={nextclade ? (inputMode === "single" ? "Nextclade · " + (nextcladeDataset || "dataset pendente") : "Nextclade · por samplesheet") : "Desativada"}/><Summary label="Identificação" value={blast ? "BLAST RefSeq" : "Desativada"}/><Summary label="Taxonomia" value={kraken ? "Kraken2" : "Desativada"}/></dl><div className="command-box"><div><span>COMANDO NEXTFLOW</span><button type="button" onClick={() => navigator.clipboard?.writeText(command)}>Copiar</button></div><pre>{command}</pre></div><button className="launch" onClick={startAnalysis} disabled={submitting || !backendOnline || (inputMode === "single" && nextclade && !nextcladeDataset.trim())}><span>▶</span>{submitting ? "Iniciando..." : !backendOnline ? "Serviço local indisponível" : inputMode === "single" && nextclade && !nextcladeDataset.trim() ? "Informe o dataset Nextclade" : "Iniciar análise"}</button><p className="launch-note">A execução continuará enquanto o computador e o aplicativo permanecerem ligados.</p></aside>
+          <aside className="run-summary"><div className="summary-head"><span>RESUMO DA EXECUÇÃO</span><b>Pronta</b></div><div className="summary-virus"><VirusBadge virus={inputMode === "single" ? virus : "Mixed viruses"}/><div><strong>{inputMode === "single" ? virus : "Mixed viruses"}</strong><small>{profile} · Illumina</small></div></div><dl><Summary label="Execução" value={runName || "Sem nome"}/><Summary label="Entrada" value={inputMode === "single" ? "Single · pasta FASTQ" : "Mixed · samplesheet CSV"}/>{inputMode === "single" && primerBed && <Summary label="Primers" value="BED ativado"/>}{inputMode === "single" && gff && <Summary label="Anotação" value="GFF3 ativado"/>}<Summary label="Recursos" value={`${cpus} CPUs · ${memory} GB`}/><Summary label="Classificação" value={nextclade ? (inputMode === "single" ? "Nextclade · " + (nextcladeDataset || "dataset pendente") : "Nextclade · por samplesheet") : "Desativada"}/><Summary label="Identificação" value={blast ? "BLAST RefSeq" : "Desativada"}/><Summary label="Taxonomia" value={kraken ? "Kraken2" : "Desativada"}/></dl><div className="command-box"><div><span>COMANDO NEXTFLOW</span><button type="button" onClick={() => navigator.clipboard?.writeText(command)}>Copiar</button></div><pre>{command}</pre></div><button className="launch" onClick={startAnalysis} disabled={submitting || !backendOnline || (inputMode === "single" && nextclade && !nextcladeDataset.trim())}><span>▶</span>{submitting ? "Iniciando..." : !backendOnline ? "Serviço local indisponível" : inputMode === "single" && nextclade && !nextcladeDataset.trim() ? "Informe o dataset Nextclade" : "Iniciar análise"}</button><p className="launch-note">A execução continuará enquanto o computador e o aplicativo permanecerem ligados.</p></aside>
         </section>}
         {view === "runs" && <RunsPage runs={runs} setView={setView} selectedRunId={selectedRunId} setSelectedRunId={setSelectedRunId} lastUpdated={lastUpdated} onCancel={cancelAnalysis} onDelete={deleteAnalysis}/>} {view === "samples" && <SamplesPage runs={runs} lastUpdated={lastUpdated}/>} {view === "results" && <ResultsPage runs={runs} selectedRunId={selectedRunId} setSelectedRunId={setSelectedRunId}/>}
       </div>

@@ -23,14 +23,21 @@ def _basename(obj) {
     return s.tokenize('/').last().tokenize('\\').last()
 }
 
-def _starts_with_cn(obj) {
-    return _basename(obj).toUpperCase().startsWith('CN')
+def _starts_with_control_prefix(obj) {
+    def prefix = (params.negative_control_prefix ?: '').toString().trim().toUpperCase()
+    return prefix && _basename(obj).toUpperCase().startsWith(prefix)
 }
 
 def is_negative_control(meta, reads) {
+    // An explicit samplesheet classification always wins. Prefix detection is
+    // retained only for backward compatibility with older CN* datasets.
+    def declared = (meta.sample_role ?: '').toString().trim().toLowerCase()
+    if (declared) {
+        return declared == 'negative_control'
+    }
     // Negative controls are detected from the sample id and, as a fallback,
     // from the FASTQ filename prefix. Examples: CN, CN-Run01, CN_BUTANTAN.
-    return _starts_with_cn(meta.id) || reads.any { r -> _starts_with_cn(r) }
+    return _starts_with_control_prefix(meta.id) || reads.any { r -> _starts_with_control_prefix(r) }
 }
 
 def validate_fastq_gz(read_path) {
@@ -74,17 +81,17 @@ def validate_fastq_gz(read_path) {
 
 def annotate_fastq_status(meta, reads, ref) {
     def r1 = validate_fastq_gz(reads[0])
-    def r2 = validate_fastq_gz(reads[1])
+    def r2 = reads.size() > 1 ? validate_fastq_gz(reads[1]) : [ok: true, reason: 'not_applicable']
     def ok = r1.ok && r2.ok
     def is_cn = is_negative_control(meta, reads)
     def issue = ok ? '' : "R1=${r1.reason};R2=${r2.reason}"
     def meta2 = meta + [
         is_control    : is_cn,
-        sample_role   : is_cn ? 'negative_control' : 'sample',
+        sample_role   : (meta.sample_role ?: (is_cn ? 'negative_control' : 'sample')),
         input_status  : ok ? 'valid' : 'skipped',
         input_issue   : issue,
         input_fastq_1 : reads[0].toString(),
-        input_fastq_2 : reads[1].toString(),
+        input_fastq_2 : reads.size() > 1 ? reads[1].toString() : '',
     ]
     if (!ok) {
         log.warn "[viral-assembly] Skipping sample '${meta.id}' before processing: ${issue}"
@@ -114,7 +121,7 @@ def helpMessage() {
 
     Mandatory:
       --input          EITHER a samplesheet CSV (columns:
-                       sample,fastq_1,fastq_2[,reference])
+                       sample,fastq_1[,fastq_2][,sample_type][,reference])
                        OR a directory containing paired FASTQ files
                        (*_R1/_R2 or *_1/_2, .fastq.gz/.fq.gz) — the samplesheet
                        is then built automatically.
@@ -136,7 +143,11 @@ def helpMessage() {
       --min_cov        Min coverage/depth to call a consensus base
                        (below -> N; IUPAC ambiguity codes -> N) [default: ${params.min_cov}]
                        (--min_depth is accepted as a deprecated alias)
-      --min_freq       Min alt-allele freq for consensus        [default: ${params.min_freq}]
+      --consensus_min_freq  Min alt-allele freq for consensus   [default: ${params.consensus_min_freq}]
+      --variant_min_freq    Min alt-allele freq in variant TSV  [default: ${params.variant_min_freq}]
+      --min_freq       Deprecated alias of --consensus_min_freq
+      --trim_min_len   Min read length after iVar trimming      [default: ${params.trim_min_len}]
+      --negative_control_prefix  Legacy control prefix fallback [default: ${params.negative_control_prefix}]
       --min_qual       Min base quality (ivar)                  [default: ${params.min_qual}]
       --min_map_qual   Min mapping quality (samtools/ivar)      [default: ${params.min_map_qual}]
 
@@ -263,10 +274,13 @@ include { IVAR_TRIM         } from './modules/local/ivar_trim'
 include { SAMTOOLS_STATS    } from './modules/local/samtools_stats'
 include { IVAR_VARIANTS     } from './modules/local/ivar_variants'
 include { ANNOTATE_AA       } from './modules/local/annotate_aa'
+include { VARIANTS_VCF      } from './modules/local/variants_vcf'
 include { MIXED_SITES       } from './modules/local/mixed_sites'
 include { IVAR_CONSENSUS    } from './modules/local/ivar_consensus'
 include { CAT_CONSENSUS     } from './modules/local/cat_consensus'
 include { CONSENSUS_QC      } from './modules/local/consensus_qc'
+include { AMPLICON_COVERAGE } from './modules/local/amplicon_coverage'
+include { CODING_QC         } from './modules/local/coding_qc'
 include { READ_STATS        } from './modules/local/read_stats'
 include { NEXTCLADE_DATASET_GET } from './modules/local/nextclade_dataset'
 include { NEXTCLADE_RUN     } from './modules/local/nextclade'
@@ -299,6 +313,39 @@ workflow {
     if (params.min_depth != null) {
         log.warn "--min_depth is deprecated; using its value (${params.min_depth}) for --min_cov. Please switch to --min_cov."
         params.min_cov = params.min_depth
+    }
+    if (params.min_freq != null) {
+        log.warn "--min_freq is deprecated; using its value (${params.min_freq}) for --consensus_min_freq. Please switch to --consensus_min_freq."
+        params.consensus_min_freq = params.min_freq
+    }
+
+    // Values supplied on the command line (including those sent by the
+    // WebTool) arrive as strings. Nextflow's params map keeps the original
+    // command-line type even after assignment, so validate typed local values
+    // instead of comparing entries in params directly.
+    def trimMinLenValue
+    def consensusMinFreqValue
+    def variantMinFreqValue
+    def ampliconMinBreadthValue
+    try {
+        trimMinLenValue = params.trim_min_len.toString().toInteger()
+        consensusMinFreqValue = params.consensus_min_freq.toString().toBigDecimal()
+        variantMinFreqValue = params.variant_min_freq.toString().toBigDecimal()
+        ampliconMinBreadthValue = params.amplicon_min_breadth.toString().toBigDecimal()
+    } catch (NumberFormatException e) {
+        error "Invalid numeric parameter: --trim_min_len must be an integer; --consensus_min_freq, --variant_min_freq and --amplicon_min_breadth must be numbers."
+    }
+    if (trimMinLenValue < 1) {
+        error "--trim_min_len must be at least 1."
+    }
+    if (consensusMinFreqValue < 0 || consensusMinFreqValue > 1) {
+        error "--consensus_min_freq must be between 0 and 1."
+    }
+    if (variantMinFreqValue < 0 || variantMinFreqValue > 1) {
+        error "--variant_min_freq must be between 0 and 1."
+    }
+    if (ampliconMinBreadthValue < 0 || ampliconMinBreadthValue > 1) {
+        error "--amplicon_min_breadth must be between 0 and 1."
     }
 
     // Collect files for MultiQC
@@ -451,6 +498,15 @@ workflow {
     SAMTOOLS_STATS ( ch_bam_final )
     ch_multiqc = ch_multiqc.mix( SAMTOOLS_STATS.out.stats.map { it[1] } )
 
+    // Per-amplicon coverage and primer-dropout warnings when a BED is supplied.
+    ch_amplicon_in = SAMTOOLS_STATS.out.depth
+        .join(ch_bed)
+        .filter { meta, depth, bed -> bed.name != 'NO_FILE' }
+    AMPLICON_COVERAGE (
+        ch_amplicon_in,
+        file("$projectDir/bin/amplicon_coverage.py", checkIfExists: true)
+    )
+
     //
     // Variant calling and consensus generation (iVar)
     //
@@ -459,6 +515,10 @@ workflow {
     IVAR_VARIANTS  ( ch_bam_gff )
     // amino-acid annotation runs in a Python container (the iVar image has no python)
     ANNOTATE_AA    ( IVAR_VARIANTS.out.tsv )
+    VARIANTS_VCF (
+        ANNOTATE_AA.out.tsv,
+        file("$projectDir/bin/ivar_tsv_to_vcf.py", checkIfExists: true)
+    )
 
     // intra-sample heterozygosity screen (contamination / co-infection signal)
     ch_mixed = Channel.empty()
@@ -468,6 +528,16 @@ workflow {
     }
 
     IVAR_CONSENSUS ( ch_bam_final )
+
+    // Generic coding-integrity checks for references with a GFF3. This is
+    // independent of Nextclade and therefore also covers uncatalogued viruses.
+    ch_coding_in = IVAR_CONSENSUS.out.consensus
+        .join(ch_gff)
+        .filter { meta, consensus, gff -> gff.name != 'NO_FILE' }
+    CODING_QC (
+        ch_coding_in,
+        file("$projectDir/bin/coding_qc.py", checkIfExists: true)
+    )
 
     //
     // Per-genome QC summary (coverage breadth, mean depth, N%, length)
@@ -640,6 +710,9 @@ workflow {
         ch_dash_mixed = ch_mixed.map             { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_reads = ch_read_stats.map        { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_validation = SAMPLE_VALIDATION.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_dash_amplicon = AMPLICON_COVERAGE.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_dash_coding = CODING_QC.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_dash_vcf = VARIANTS_VCF.out.vcf.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
 
         ch_dash_in = ch_dash_qc
             .join( ch_dash_var,   remainder: true )
@@ -651,8 +724,13 @@ workflow {
             .join( ch_dash_reads, remainder: true )
             .join( ch_dash_validation, remainder: true )
             .join( ch_validation_krona, remainder: true )
+            .join( ch_dash_amplicon, remainder: true )
+            .join( ch_dash_coding, remainder: true )
+            .join( ch_dash_vcf, remainder: true )
             .map { row ->
-                // row = [ vdir, qc[], var[], mixed[], taxonomy, krona, nextclade, blast, reads[], validation[], validation_krona ]
+                // row = [ vdir, qc[], var[], mixed[], taxonomy, krona, nextclade,
+                //         blast, reads[], validation[], validation_krona,
+                //         amplicon[], coding_qc[], vcf[] ]
                 def vdir = row[0]
                 def vals = row[1..-1].collect { v -> v == null ? [] : v }
                 [ vdir ] + vals

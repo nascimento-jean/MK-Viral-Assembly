@@ -43,7 +43,7 @@ sleep 2
 
 cat > "$MARKER" <<EOF
 repository=test
-release=v1.2.4
+release=v1.2.5
 revision=service-lifecycle-2026-09-30
 EOF
 

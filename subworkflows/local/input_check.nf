@@ -1,6 +1,6 @@
 /*
     INPUT_CHECK : parse the samplesheet into channels.
-    Columns:  sample,fastq_1,fastq_2[,virus][,reference][,gff][,bed_file][,nextclade_dataset]
+    Columns:  sample,fastq_1[,fastq_2][,sample_type][,virus][,reference][,gff][,bed_file][,nextclade_dataset]
     - 'reference' optional; empty => global --reference.
     - 'gff' optional; empty => global --gff (may be none).
     - 'bed_file' optional; empty => global --primer_bed (may be none). Per-sample
@@ -44,8 +44,13 @@ def vdir_of(String virus) {
 
 def row_meta(LinkedHashMap row) {
     def meta = [:]
+    def role = (row.sample_type ?: '').toString().trim().toLowerCase()
+    if (role && !(role in ['sample', 'negative_control', 'positive_control'])) {
+        error("ERROR: sample '${row.sample}' has invalid sample_type '${row.sample_type}'. Use sample, negative_control or positive_control.")
+    }
     meta.id         = row.sample
-    meta.single_end = false
+    meta.single_end = !(row.fastq_2 && row.fastq_2.toString().trim())
+    meta.sample_role = role
     meta.virus      = (row.virus && row.virus.trim()) ? row.virus.trim() : ''
     meta.vdir       = vdir_of(meta.virus)   // output subfolder name for this sample's virus
     return meta
@@ -82,12 +87,13 @@ def create_read_channel(LinkedHashMap row) {
 
     if (!row.sample)  { error("ERROR: samplesheet row is missing a 'sample' value: ${row}") }
     if (!row.fastq_1) { error("ERROR: sample '${row.sample}' is missing 'fastq_1'") }
-    if (!row.fastq_2) { error("ERROR: sample '${row.sample}' is missing 'fastq_2' (this pipeline expects paired-end reads)") }
-
     def meta = row_meta(row)
 
     def fq1 = file(row.fastq_1, checkIfExists: true)
-    def fq2 = file(row.fastq_2, checkIfExists: true)
+    def reads = [ fq1 ]
+    if (!meta.single_end) {
+        reads << file(row.fastq_2, checkIfExists: true)
+    }
 
     // per-sample reference overrides the global one
     def ref_path = (row.reference && row.reference.trim()) ? row.reference.trim() : params.reference
@@ -96,5 +102,5 @@ def create_read_channel(LinkedHashMap row) {
     }
     def ref = file(ref_path, checkIfExists: true)
 
-    return [ meta, [ fq1, fq2 ], ref ]
+    return [ meta, reads, ref ]
 }

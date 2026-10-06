@@ -122,9 +122,7 @@ process BLAST_DB_PREP {
         cp "\$MARK" refseq_build_date.txt
     fi
 
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        blast: \$(blastn -version | head -1 | sed 's/blastn: //')
-    END_VERSIONS
+    printf '"${task.process}":\n    blast: %s\n' \
+        "\$(blastn -version | head -1 | sed 's/blastn: //')" > versions.yml
     """
 }

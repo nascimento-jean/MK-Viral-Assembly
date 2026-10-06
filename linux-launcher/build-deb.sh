@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LAUNCHER_DIR="$ROOT/linux-launcher"
-VERSION="${MKVA_VERSION:-1.2.4}"
+VERSION="${MKVA_VERSION:-1.2.5}"
 ARCH="${MKVA_ARCH:-amd64}"
 OUTPUT_DIR="${MKVA_OUTPUT_DIR:-$LAUNCHER_DIR/output}"
 TMP_ROOT="${TMPDIR:-/tmp}"

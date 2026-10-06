@@ -27,7 +27,7 @@ process IVAR_VARIANTS {
             ${gff_arg} \\
             -m ${params.min_cov} \\
             -q ${params.min_qual} \\
-            -t ${params.min_freq}
+            -t ${params.variant_min_freq}
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

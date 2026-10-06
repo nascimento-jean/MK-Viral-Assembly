@@ -32,7 +32,7 @@ process IVAR_CONSENSUS {
                 -p _tmp_\${c}.consensus \\
                 -m ${params.min_cov} \\
                 -q ${params.min_qual} \\
-                -t ${params.min_freq} \\
+                -t ${params.consensus_min_freq} \\
                 -n N
 
         if [ "\$n_contigs" -eq 1 ]; then

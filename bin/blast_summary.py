@@ -16,6 +16,18 @@ Output columns:
 import argparse, csv, os, re
 
 
+def read_status(path):
+    status = "OK"
+    message = ""
+    if path and os.path.isfile(path):
+        with open(path, newline="") as fh:
+            row = next(csv.DictReader(fh, delimiter="\t"), None)
+        if row:
+            status = (row.get("status") or status).strip()
+            message = (row.get("message") or "").strip()
+    return status, message
+
+
 def parse_species(stitle, sseqid):
     # stitle like: "NC_004162.2 Chikungunya virus, complete genome"
     t = stitle.strip()
@@ -40,6 +52,7 @@ def accession(sseqid, stitle):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--raw", required=True)
+    ap.add_argument("--status", default=None)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -58,8 +71,10 @@ def main():
                 if qseqid not in best or bs > best[qseqid][0]:
                     best[qseqid] = (bs, sseqid, pident, qcovs, evalue, stitle)
 
+    run_status, run_message = read_status(args.status)
     cols = ["sample", "segment", "best_hit_species", "accession",
-            "pct_identity", "coverage", "evalue", "bitscore"]
+            "pct_identity", "coverage", "evalue", "bitscore",
+            "blast_status", "blast_message"]
     with open(args.out, "w", newline="") as fh:
         w = csv.writer(fh, delimiter="\t", lineterminator="\n")
         w.writerow(cols)
@@ -70,7 +85,11 @@ def main():
             else:
                 smp, seg = qseqid, "ALL"
             w.writerow([smp, seg, parse_species(stitle, sseqid),
-                        accession(sseqid, stitle), pident, qcovs, evalue, f"{bs:g}"])
+                        accession(sseqid, stitle), pident, qcovs, evalue, f"{bs:g}",
+                        run_status, run_message])
+        if run_status != "OK":
+            w.writerow(["__BLAST_STATUS__", "RUN", "", "", "", "", "", "",
+                        run_status, run_message])
 
     print(f"blast_summary: {len(best)} query hit(s) -> {args.out}")
 

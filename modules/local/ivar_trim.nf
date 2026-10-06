@@ -17,7 +17,7 @@ process IVAR_TRIM {
     ivar trim -e \\
         -i ${bam} \\
         -b ${primer_bed} \\
-        -m ${params.min_cov} \\
+        -m ${params.trim_min_len} \\
         -q ${params.min_qual} \\
         -p ${meta.id}.trim
 

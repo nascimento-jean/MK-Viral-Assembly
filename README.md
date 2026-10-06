@@ -47,13 +47,33 @@ The graphical WebTool lets Windows and Ubuntu users configure and run MK-Viral-A
 
 ### Ubuntu 22.04/24.04
 
-1. [Download `MK-Viral-Assembly-WebTool_1.2.4_amd64.deb` directly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.4/MK-Viral-Assembly-WebTool_1.2.4_amd64.deb).
-2. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.4_amd64.deb`.
+1. [Download `MK-Viral-Assembly-WebTool_1.2.5_amd64.deb` directly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.5/MK-Viral-Assembly-WebTool_1.2.5_amd64.deb).
+2. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.5_amd64.deb`.
 3. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation. On Ubuntu, the WebTool opens in its own application window without browser controls.
 
-Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md) or the [Portuguese guide](docs/INSTALACAO_WEBTOOL_PT_BR.md) for requirements, checksum verification, database behavior and troubleshooting.
+Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md), the [Portuguese installation guide](docs/INSTALACAO_WEBTOOL_PT_BR.md), or the [illustrated Portuguese tutorial](Tutorial_MK-Viral-Assembly_PT-BR.pdf) for requirements, analysis setup, metadata, dashboard interpretation and troubleshooting.
 
-## Version 1.2.4 highlights
+## Version 1.2.5 highlights
+
+- separate controls for minimum trimmed-read length, consensus allele frequency
+  and reported-variant frequency;
+- single-end Illumina rows and an explicit `sample_type` column in mixed-virus
+  samplesheets;
+- one reusable BWA index per reference instead of rebuilding it for each sample;
+- VCF output for reported variants;
+- an **Amplicons** dashboard tab with mean/minimum depth, breadth at the minimum
+  depth threshold and primer-dropout warnings;
+- a **Coding QC** dashboard tab that flags incompatible CDS lengths, internal
+  stop codons and missing contigs when a GFF3 annotation is supplied;
+- a **Variant Calls** dashboard tab with the variants exported to VCF;
+- reliable BLAST species confirmation for staged consensus files, with explicit
+  `NO_CONSENSUS` and `BLAST_FAILED` statuses instead of silent empty tables;
+- version-aware amplicon matching, so accessions such as `NC_001477` and
+  `NC_001477.1` are treated as the same contig when the match is unambiguous;
+- a machine-readable `nextflow_schema.json` and regression tests for the new
+  outputs and mixed-virus behavior.
+
+## Version 1.2.5 highlights
 
 - the Windows picker now opens through a topmost native owner without runtime C# compilation or an encoded PowerShell command;
 - reinstalling a newer Windows launcher now updates its managed WSL source while preserving local history, results and downloaded databases;
@@ -309,17 +329,18 @@ A samplesheet is a CSV file with a header. The first three columns are required:
 can be set **per sample**.
 
 ```csv
-sample,fastq_1,fastq_2,virus,reference,gff,bed_file,nextclade_dataset
-chikv_01,/data/chikv_01_R1.fastq.gz,/data/chikv_01_R2.fastq.gz,chikv,/refs/CHIKV.fasta,/refs/CHIKV.gff3,/refs/chikv.bed,chikv
-denv2_02,/data/denv2_02_R1.fastq.gz,/data/denv2_02_R2.fastq.gz,denv2,/refs/DENV2.fasta,,/refs/denv2.bed,dengue
-orov_03,/data/orov_03_R1.fastq.gz,/data/orov_03_R2.fastq.gz,orov,/refs/OROV.fasta,/refs/OROV.gff3,,oropouche
+sample,fastq_1,fastq_2,sample_type,virus,reference,gff,bed_file,nextclade_dataset
+chikv_01,/data/chikv_01_R1.fastq.gz,/data/chikv_01_R2.fastq.gz,sample,chikv,/refs/CHIKV.fasta,/refs/CHIKV.gff3,/refs/chikv.bed,chikv
+denv2_02,/data/denv2_02_R1.fastq.gz,/data/denv2_02_R2.fastq.gz,sample,denv2,/refs/DENV2.fasta,,/refs/denv2.bed,dengue
+control_01,/data/control_01.fastq.gz,,negative_control,denv2,/refs/DENV2.fasta,,/refs/denv2.bed,dengue
 ```
 
 | Column | Required? | Meaning |
 |--------|-----------|---------|
 | `sample` | yes | Unique sample ID used in output filenames and consensus headers |
 | `fastq_1` | yes | R1 FASTQ file |
-| `fastq_2` | yes | R2 FASTQ file |
+| `fastq_2` | no | R2 FASTQ file; leave empty for single-end Illumina data |
+| `sample_type` | no | `sample`, `negative_control`, or `positive_control`; explicit values override prefix detection |
 | `virus` | no | Virus label; also the output folder name and catalog key |
 | `reference` | no | Per-sample reference FASTA; overrides global `--reference` |
 | `gff` | no | Per-sample GFF3 annotation; overrides global `--gff` |
@@ -331,8 +352,10 @@ global value, that optional step is skipped for that sample.
 
 ### Negative controls
 
-Samples whose sample ID or FASTQ filename starts with `CN` are treated as
-negative controls. Examples:
+Set `sample_type` to `negative_control` whenever possible. For compatibility
+with older samplesheets, samples whose sample ID or FASTQ filename starts with
+the configurable `--negative_control_prefix` (`CN` by default) are also treated
+as negative controls. Examples:
 
 ```text
 CN
@@ -364,12 +387,15 @@ See [PARAMETERS.md](PARAMETERS.md) for the complete parameter guide and
 | `--gff`          | –       | GFF3 (CDS) for the reference → `ivar variants` annotates amino-acid changes (adds `aa_change`, e.g. `S:N501Y`); per-sample override via a `gff` samplesheet column |
 | `--primer_bed`   | –       | Global amplicon primer BED → `ivar trim` (e.g. ARTIC / Midnight schemes); per-sample override via the `bed_file` samplesheet column |
 | `--min_cov`      | `20`    | Min coverage to call a consensus base (else `N`); IUPAC ambiguity codes in the consensus are normalized to `N`; `--min_depth` is a deprecated alias |
-| `--min_freq`     | `0.75`  | Min alt-allele frequency for a consensus call |
+| `--trim_min_len` | `30`    | Minimum read length retained after iVar primer trimming |
+| `--consensus_min_freq` | `0.75` | Minimum allele frequency for a consensus call (`--min_freq` is a deprecated alias) |
+| `--variant_min_freq` | `0.25` | Minimum allele frequency reported in the variant TSV and VCF |
 | `--min_qual`     | `20`    | Min base quality (ivar) |
 | `--min_map_qual` | `20`    | Min mapping quality |
 | `--kraken2_db`   | –       | Kraken2 DB dir → taxonomic screen + Krona + taxonomy tab |
 | `--deplete_host` | `false` | Remove host reads before mapping (requires `--kraken2_db`) |
 | `--host_taxid`   | `9606`  | NCBI taxid depleted by `--deplete_host` (9606 = *Homo sapiens*) |
+| `--negative_control_prefix` | `CN` | Legacy fallback prefix used only when `sample_type` is empty |
 | `--mixed_min_freq` | `0.20` | Minor-allele freq lower bound for a "mixed" (heterozygous) site |
 | `--mixed_max_freq` | `0.80` | Minor-allele freq upper bound for a "mixed" (heterozygous) site |
 | `--nextclade`    | `false` | Run Nextclade clade/lineage/genotype typing on the consensus. Uses each sample's `nextclade_dataset` column, falling back to the global `--nextclade_dataset` |
@@ -520,6 +546,16 @@ Dashboard tabs:
   (PASS variants per kb of reference — a sample-swap / wrong-reference check)
   and **Mixed sites** (heterozygous sites per kb — red-flagged at ≥ 1.0/kb).
 - **Coverage** — per-sample completeness and mean-depth bar charts.
+- **Amplicons** — per-amplicon mean and minimum depth, breadth at `--min_cov`,
+  and a dropout flag. A dropout means that the configured fraction of the
+  amplicon did not reach the depth threshold; it does not by itself mean that
+  the complete sample consensus could not be generated.
+- **Coding QC** — integrity checks for annotated CDS features. **REVIEW** flags
+  a CDS whose length is not a multiple of three, an internal stop codon, or a
+  contig missing from the consensus. Review the reference/GFF3 compatibility
+  and the affected sequence before submission.
+- **Variant Calls** — the variants retained at `--variant_min_freq`, presented
+  from the standards-compatible VCF output for downstream reanalysis.
 - **Mutations** — most recurrent amino-acid changes, mutation load per
   gene/protein and a per-sample mutation list (only when `--gff` is supplied).
 - **Lineages / Genotypes** — Nextclade clade/lineage/genotype per sample with the
@@ -527,7 +563,9 @@ Dashboard tabs:
   BLAST species-confirmation table (species, accession, % identity, coverage,
   E-value). For segmented viruses (Oropouche) the L/M/S lineages are shown together
   on one row. Shown only when `--nextclade` and/or `--blast_id` are set; the dataset
-  name@tag and RefSeq DB provenance are printed in the report footer.
+  name@tag and RefSeq DB provenance are printed in the report footer. A BLAST
+  status message distinguishes a missing consensus from an execution/database
+  failure instead of silently showing an empty identification table.
 - **Taxonomy** — per-sample read composition (target virus / host / bacterial /
   unclassified), a composition mini-bar, the dominant non-host taxon and an
   embedded **Krona** sunburst. Host contamination ≥ 50 % is red-flagged. Shown

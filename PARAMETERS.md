@@ -135,9 +135,20 @@ After iVar writes the consensus, the pipeline normalizes ambiguous IUPAC bases
 to `N`. This normalization is applied to the per-sample consensus FASTA files
 and is also enforced when the run-level combined multi-FASTA files are written.
 
-### `--min_freq <0-1>` — default: `0.75`
+### `--trim_min_len <integer>` — default: `30`
 
-Minimum alternate-allele frequency used for the consensus call.
+Minimum read length retained by `ivar trim` after primer and quality trimming.
+This setting controls read length independently of coverage depth.
+
+### `--consensus_min_freq <0-1>` — default: `0.75`
+
+Minimum alternate-allele frequency used for the consensus call. `--min_freq`
+is retained as a deprecated alias.
+
+### `--variant_min_freq <0-1>` — default: `0.25`
+
+Minimum alternate-allele frequency reported in the iVar variant TSV and the
+derived VCF. Interpret low-frequency calls together with depth and quality.
 
 ### `--min_qual <integer>` — default: `20`
 
@@ -445,9 +456,12 @@ outdir/
 └── pipeline_info/
 ```
 
-The dashboard tabs are Overview, Samples, Coverage, Mutations,
-Lineages/Genotypes, Taxonomy, and Segments. Optional tabs appear only when
-their corresponding analyses are enabled.
+The dashboard tabs are Run Validation, Overview, Samples, Coverage, Amplicons,
+Coding QC, Variant Calls, Mutations, Lineages/Genotypes, Taxonomy, and Segments.
+Optional tabs appear only when their corresponding inputs and analyses are
+available. Amplicon dropout is evaluated against `--min_cov` and
+`--amplicon_min_breadth`; Coding QC requires a GFF3; and Variant Calls displays
+the VCF derived from the iVar table at `--variant_min_freq`.
 
 ## 12. Reproducibility recommendations
 

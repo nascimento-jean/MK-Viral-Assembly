@@ -16,7 +16,10 @@ process DASHBOARD {
           path(blast_file,     stageAs: "blast/*"),
           path(readstat_files, stageAs: "read_stats/*"),
           path(validation_files, stageAs: "sample_validation/*"),
-          path(validation_krona, stageAs: "validation_krona/*")
+          path(validation_krona, stageAs: "validation_krona/*"),
+          path(amplicon_files, stageAs: "amplicon_coverage/*"),
+          path(coding_qc_files, stageAs: "coding_qc/*"),
+          path(vcf_files, stageAs: "vcf/*")
 
     output:
     tuple val(virus), path("${virus}_dashboard.html"), emit: html
@@ -37,6 +40,9 @@ process DASHBOARD {
     def rs_arg   = readstat_files ? "--read-stats-dir read_stats" : ""
     def val_arg  = validation_files ? "--validation-dir sample_validation" : ""
     def val_krona_arg = validation_krona ? "--validation-krona run_validation/krona.html" : ""
+    def amp_arg  = amplicon_files ? "--amplicon-dir amplicon_coverage" : ""
+    def coding_arg = coding_qc_files ? "--coding-qc-dir coding_qc" : ""
+    def vcf_arg = vcf_files ? "--vcf-dir vcf" : ""
     """
     make_dashboard.py \\
         --qc-dir consensus_qc \\
@@ -51,6 +57,9 @@ process DASHBOARD {
         ${rs_arg} \\
         ${val_arg} \\
         ${val_krona_arg} \\
+        ${amp_arg} \\
+        ${coding_arg} \\
+        ${vcf_arg} \\
         --out ${virus}_dashboard.html \\
         --run-name "${run_name}" \\
         --pass ${params.dash_pass} \\

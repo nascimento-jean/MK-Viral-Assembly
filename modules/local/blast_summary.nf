@@ -6,20 +6,19 @@ process BLAST_SUMMARY {
     container "${ workflow.containerEngine == 'singularity' ? 'https://depot.galaxyproject.org/singularity/python:3.10' : 'quay.io/biocontainers/python:3.10' }"
 
     input:
-    tuple val(vdir), path(raw, stageAs: "blast_raw.tsv")
+    tuple val(vdir), path(raw, stageAs: "blast_raw.tsv"), path(status, stageAs: "blast_status.tsv")
 
     output:
     tuple val(vdir), path("blast_summary.tsv"), emit: tsv
     tuple val(vdir), path("blast_raw.tsv")    , emit: raw
-    path 'versions.yml'     , emit: versions
+    tuple val(vdir), path("blast_status.tsv") , emit: status
+    path 'versions.yml', emit: versions
 
     script:
     """
-    blast_summary.py --raw blast_raw.tsv --out blast_summary.tsv
+    blast_summary.py --raw blast_raw.tsv --status blast_status.tsv --out blast_summary.tsv
 
-    cat <<-END_VERSIONS > versions.yml
-    "${task.process}":
-        python: \$(python --version | sed 's/Python //')
-    END_VERSIONS
+    printf '"${task.process}":\n    python: %s\n' \
+        "\$(python --version | sed 's/Python //')" > versions.yml
     """
 }

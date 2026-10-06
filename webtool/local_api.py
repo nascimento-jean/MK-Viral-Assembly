@@ -431,7 +431,18 @@ def build_command(payload: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
         "outdir": outdir,
         "kraken_db": kraken_db,
         "min_cov": number(payload.get("min_cov", 20), "Cobertura mínima", 1, 100000, True),
-        "min_freq": number(payload.get("min_freq", 0.75), "Frequência mínima", 0, 1),
+        "consensus_min_freq": number(
+            payload.get("consensus_min_freq", payload.get("min_freq", 0.75)),
+            "Frequência mínima do consenso", 0, 1,
+        ),
+        "variant_min_freq": number(
+            payload.get("variant_min_freq", 0.25),
+            "Frequência mínima das variantes", 0, 1,
+        ),
+        "trim_min_len": number(
+            payload.get("trim_min_len", 30),
+            "Comprimento mínimo após o corte", 1, 100000, True,
+        ),
         "min_qual": number(payload.get("min_qual", 20), "Qualidade da base", 0, 100, True),
         "min_map_qual": number(payload.get("min_map_qual", 20), "Qualidade de mapeamento", 0, 100, True),
         "max_cpus": number(payload.get("max_cpus", 14), "CPUs", 1, os.cpu_count() or 64, True),
@@ -446,7 +457,10 @@ def build_command(payload: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
     cmd = [str(NEXTFLOW), "run", "main.nf", "-profile", profile,
            "--input", normalized["input"], "--outdir", outdir,
            "--run_name", normalized["name"], "--min_cov", str(normalized["min_cov"]),
-           "--min_freq", str(normalized["min_freq"]), "--min_qual", str(normalized["min_qual"]),
+           "--consensus_min_freq", str(normalized["consensus_min_freq"]),
+           "--variant_min_freq", str(normalized["variant_min_freq"]),
+           "--trim_min_len", str(normalized["trim_min_len"]),
+           "--min_qual", str(normalized["min_qual"]),
            "--min_map_qual", str(normalized["min_map_qual"]), "--max_cpus", str(normalized["max_cpus"]),
            "--max_memory", f"{normalized['max_memory']}.GB", "--nextclade", str(normalized["nextclade"]).lower(),
            "--blast_id", str(normalized["blast"]).lower()]

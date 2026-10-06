@@ -97,11 +97,24 @@ def main():
     whole = metrics(args.sample, all_seq, all_depths, args.min_depth)
     rows.append([whole[0], "ALL"] + whole[1:])
 
+    # Associate segmented consensus records with depth records by contig name,
+    # never by position. Consensus headers produced by this pipeline use
+    # >sample|contig; accepting a plain contig header also keeps the utility
+    # usable on external FASTA files.
+    seq_by_contig = {}
+    for record_name, sequence in records:
+        contig_name = record_name.split("|", 1)[1] if "|" in record_name else record_name
+        seq_by_contig[contig_name] = sequence
+
     # per-segment rows only when the reference has more than one contig
     if len(contig_order) > 1:
-        # map consensus records to contigs by order (headers are >sample|contig)
-        for i, contig in enumerate(contig_order):
-            seq = records[i][1] if i < len(records) else ""
+        for contig in contig_order:
+            seq = seq_by_contig.get(contig, "")
+            if not seq:
+                print(
+                    f"WARNING: consensus has no record matching depth contig '{contig}'",
+                    file=sys.stderr,
+                )
             m = metrics(args.sample, seq, per_contig[contig], args.min_depth)
             rows.append([m[0], contig] + m[1:])
 

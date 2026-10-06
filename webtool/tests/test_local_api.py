@@ -41,7 +41,9 @@ class BuildCommandTests(unittest.TestCase):
             "nextclade_dataset": "denv4",
             "blast": True,
             "min_cov": 20,
-            "min_freq": 0.75,
+            "consensus_min_freq": 0.75,
+            "variant_min_freq": 0.25,
+            "trim_min_len": 30,
             "min_qual": 20,
             "min_map_qual": 20,
             "max_cpus": 2,
@@ -76,6 +78,12 @@ class BuildCommandTests(unittest.TestCase):
             self.assertEqual(normalized["primer_bed"], str(primer_bed))
             self.assertEqual(normalized["gff"], str(gff))
             self.assertEqual(normalized["nextclade_dataset"], "denv4")
+            self.assertEqual(normalized["consensus_min_freq"], 0.75)
+            self.assertEqual(normalized["variant_min_freq"], 0.25)
+            self.assertEqual(normalized["trim_min_len"], 30)
+            self.assertIn("--consensus_min_freq", command)
+            self.assertIn("--variant_min_freq", command)
+            self.assertIn("--trim_min_len", command)
 
     def test_mixed_ignores_global_bed_and_gff(self):
         with tempfile.TemporaryDirectory() as directory:

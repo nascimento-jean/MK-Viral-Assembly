@@ -14,8 +14,9 @@ process MINIMAP2 {
 
     script:
     def rg = "@RG\\tID:${meta.id}\\tSM:${meta.id}\\tPL:ILLUMINA"
+    def read_args = reads.join(' ')
     """
-    minimap2 -ax sr -t $task.cpus -R "${rg}" ${reference} ${reads[0]} ${reads[1]} \\
+    minimap2 -ax sr -t $task.cpus -R "${rg}" ${reference} ${read_args} \\
         | samtools sort -@ $task.cpus -o ${meta.id}.sorted.bam -
     samtools index -@ $task.cpus ${meta.id}.sorted.bam
 

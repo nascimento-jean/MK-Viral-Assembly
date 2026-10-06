@@ -16,15 +16,17 @@ process FASTP {
 
     script:
     def args = task.ext.args ?: ''
+    def input_args = meta.single_end ? "--in1 ${reads[0]}" : "--in1 ${reads[0]} --in2 ${reads[1]}"
+    def output_args = meta.single_end ? "--out1 ${meta.id}.trim.fastq.gz" : "--out1 ${meta.id}_1.trim.fastq.gz --out2 ${meta.id}_2.trim.fastq.gz"
+    def mode_args = meta.single_end ? "" : "--detect_adapter_for_pe"
     """
     fastp \\
-        --in1 ${reads[0]} \\
-        --in2 ${reads[1]} \\
-        --out1 ${meta.id}_1.trim.fastq.gz \\
-        --out2 ${meta.id}_2.trim.fastq.gz \\
+        ${input_args} \\
+        ${output_args} \\
         --json ${meta.id}.fastp.json \\
         --html ${meta.id}.fastp.html \\
         --thread $task.cpus \\
+        ${mode_args} \\
         $args \\
         2> ${meta.id}.fastp.log
 

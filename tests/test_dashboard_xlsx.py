@@ -13,6 +13,7 @@ import posixpath
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from html.parser import HTMLParser
 from xml.etree import ElementTree as ET
@@ -252,6 +253,62 @@ class ExcelExportTests(unittest.TestCase):
         self.assertNotIn("fetch(", js)
         self.assertNotIn("cdn.", js)
         self.assertTrue(all(b["filename"].endswith(".xlsx") for b in dom.buttons))
+
+    def test_new_analysis_tabs_and_excel_exports_are_present_when_data_exist(self):
+        sample = {"ALL": {"completeness": "0.98", "breadth_ge_20x": "0.97",
+                          "mean_depth": "500", "consensus_length": "11000",
+                          "n_bases": "10", "ref_positions": "11000"}, "segments": []}
+        doc = dashboard.build_html(
+            "New analyses", {"S1": sample}, {}, "breadth_ge_20x", 0.9, 0.7, 20,
+            amplicon_coverage=[{
+                "sample": "S1", "contig": "ref", "amplicon": "amp1",
+                "start_1based": "1", "end_1based": "100", "length": "100",
+                "mean_depth": "250", "min_depth": "18",
+                "breadth_ge_min_depth": "0.95", "dropout": "NO",
+            }],
+            coding_qc=[{
+                "sample": "S1", "contig": "ref", "feature": "E1", "start": "1",
+                "strand": "+", "cds_length": "1320",
+                "cds_length_not_multiple_of_3": "NO", "internal_stop_count": "0",
+                "internal_stop_positions": "", "missing_contig": "NO",
+            }],
+            vcf_records=[{
+                "sample": "S1", "chrom": "ref", "pos": "42", "ref": "A", "alt": "G",
+                "qual": "35", "filter": "PASS", "depth": "100",
+                "allele_frequency": "0.31", "alt_depth": "31", "aa_change": "E1:K14R",
+            }],
+        )
+        dom = DashboardDOM(doc)
+        self.assertIn('data-tab="amplicons"', doc)
+        self.assertIn('data-tab="coding-qc"', doc)
+        self.assertIn('data-tab="vcf"', doc)
+        self.assertEqual(len(dom.tables["tbl-amplicons"]["rows"]), 1)
+        self.assertEqual(len(dom.tables["tbl-coding-qc"]["rows"]), 1)
+        self.assertEqual(len(dom.tables["tbl-vcf"]["rows"]), 1)
+        downloads = export(dom)["downloads"]
+        filenames = [item["filename"] for item in downloads]
+        self.assertIn("amplicon_coverage.xlsx", filenames)
+        self.assertIn("coding_qc.xlsx", filenames)
+        self.assertIn("variant_calls_vcf.xlsx", filenames)
+        for item in downloads:
+            workbook(item)
+
+    def test_new_analysis_files_are_loaded_from_pipeline_formats(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            root = Path(directory)
+            (root / "S1.amplicon_coverage.tsv").write_text(
+                "sample\tcontig\tamplicon\tstart_1based\tend_1based\tlength\tmean_depth\tmin_depth\tbreadth_ge_min_depth\tdropout\n"
+                "S1\tref\tamp1\t1\t100\t100\t250.00\t18\t0.9500\tNO\n", encoding="utf-8")
+            (root / "S1.coding_qc.tsv").write_text(
+                "sample\tcontig\tfeature\tstart\tend\tstrand\tcds_length\tcds_length_not_multiple_of_3\tinternal_stop_count\tinternal_stop_positions\tmissing_contig\n"
+                "S1\tref\tE1\t1\t1320\t+\t1320\tNO\t0\t\tNO\n", encoding="utf-8")
+            (root / "S1.variants.vcf").write_text(
+                "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                "ref\t42\t.\tA\tG\t35\tPASS\tDP=100;AF=0.31;AD=31;AA_CHANGE=E1:K14R\n",
+                encoding="utf-8")
+            self.assertEqual(dashboard.load_amplicon_coverage(root)[0]["amplicon"], "amp1")
+            self.assertEqual(dashboard.load_coding_qc(root)[0]["feature"], "E1")
+            self.assertEqual(dashboard.load_vcf(root)[0]["allele_frequency"], "0.31")
 
 
 if __name__ == "__main__":

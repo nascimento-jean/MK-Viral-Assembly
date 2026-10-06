@@ -13,6 +13,9 @@ nextflow run main.nf \
     --reference /refs/SARS-CoV-2.fasta \
     --primer_bed /refs/SARS-CoV-2_primers.bed \
     --gff /refs/SARS-CoV-2.gff3 \
+    --consensus_min_freq 0.75 \
+    --variant_min_freq 0.25 \
+    --trim_min_len 30 \
     --kraken2_db /databases/kraken2_standard \
     --deplete_host true \
     --nextclade true \
