@@ -217,15 +217,15 @@ def build_virus_name(kind, row, code, year, warnings):
     if kind == "oropouche":
         return f"hOROV/Brazil/{region}/{year}"
     if kind == "dengue":
-        serotype = dengue_serotype_number(row.get("Sorotipo") or row.get("Vírus"))
+        serotype = dengue_serotype_number(row.get("Sorotipo"))
         if not serotype:
             warnings.append(f"Amostra {code}: sorotipo ausente/inválido, pulando.")
             return None
         return f"hDenV{serotype}/Brazil/{region}/{year}"
     if kind == "vsr":
-        subtype = str(row.get("Subtipo") or row.get("Genótipo") or "").strip().upper()
+        subtype = str(row.get("Subtipo") or "").strip().upper()
         if subtype not in ("A", "B"):
-            warnings.append(f"Amostra {code}: genótipo do VSR deve ser 'A' ou 'B' (veio {subtype!r}), pulando.")
+            warnings.append(f"Amostra {code}: subtipo do VSR deve ser 'A' ou 'B' (veio {subtype!r}), pulando.")
             return None
         return f"hRSV/{subtype}/Brazil/{region}/{year}"
     return None
@@ -263,9 +263,9 @@ def build_records(kind, headers, rows, warnings):
         location = "/".join(part for part in ("South America", "Brazil", uf, municipio) if part)
         subtype = ""
         if kind == "dengue":
-            subtype = f"DENV{dengue_serotype_number(row.get('Sorotipo') or row.get('Vírus'))}"
+            subtype = f"DENV{dengue_serotype_number(row.get('Sorotipo'))}"
         elif kind == "vsr":
-            subtype = str(row.get("Genótipo") or "").strip().upper()
+            subtype = str(row.get("Subtipo") or "").strip().upper()
         records[code] = {
             "virus_name": virus_name,
             "subtype": subtype,

@@ -195,10 +195,11 @@ For an automatic GISAID bulk-upload bundle, also provide `Submissor`,
 For Dengue, `Sorotipo` accepts common labels and is normalized to `DENV1`–`DENV4`.
 For RSV/VSR, `Subtipo` is normalized to `A` or `B`, while `Genótipo` preserves a
 detailed lineage such as `A.D.1`. Nextclade/BLAST calls take precedence only when
-they are unambiguous and agree with declared metadata. A disagreement produces an
-`Alerta de Tipagem`, leaves the automatic subtype/serotype blank, and excludes that
-sample from the GISAID bundle until it is reviewed. `Origem da Tipagem` records the
-source used.
+they are unambiguous and agree with declared metadata. Sources and conflicts are
+reported in the execution log. A disagreement leaves the automatic subtype/serotype
+blank and excludes that sample from the GISAID bundle until it is reviewed. The
+`Nome da Sequencia` column in `metadata_<virus>.xlsx` matches the GISAID `Virus name`
+value whenever the collection date, region code and required typing are available.
 
 The optional column `Tecnologia de Sequenciamento` can record the instrument;
 otherwise the pipeline uses `Illumina`, consistent with its paired-end Illumina

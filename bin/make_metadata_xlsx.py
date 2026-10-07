@@ -42,6 +42,10 @@ def virus_kind(*values):
         return "dengue"
     if any(token in ("sarscov2", "sars2", "covid19") or "sarscov2" in token for token in tokens):
         return "sarscov2"
+    if any("chikv" in token or "chikungunya" in token for token in tokens):
+        return "chikungunya"
+    if any("orov" in token or "oropouche" in token for token in tokens):
+        return "oropouche"
     if any("rsv" in token or "vsr" in token or "sincicial" in token for token in tokens):
         return "vsr"
     return "other"
@@ -53,7 +57,46 @@ def output_headers(kind):
         typing_headers.insert(0, "Sorotipo")
     elif kind == "vsr":
         typing_headers.insert(0, "Subtipo")
-    return BASE_HEADERS + typing_headers + ["Origem da Tipagem", "Alerta de Tipagem"] + FINAL_HEADERS
+    return BASE_HEADERS + typing_headers + FINAL_HEADERS
+
+
+def collection_year(value):
+    """Return the four-digit collection year accepted by the GISAID builder."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y")
+        except ValueError:
+            continue
+    return text[:4] if re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?", text) else ""
+
+
+def build_sequence_name(kind, row, code):
+    """Build the same sequence name written to the GISAID Virus name field."""
+    year = collection_year(row.get("Data Coleta"))
+    region_code = str(row.get("Código da Região", "")).strip()
+    if not year or not region_code or not code:
+        return ""
+    region = f"{region_code}-{code}"
+    if kind == "sarscov2":
+        return f"hCoV-19/Brazil/{region}/{year}"
+    if kind == "chikungunya":
+        return f"ChikV/Brazil/{region}/{year}"
+    if kind == "oropouche":
+        return f"hOROV/Brazil/{region}/{year}"
+    if kind == "dengue":
+        serotype = normalize_dengue_serotype(row.get("Sorotipo"))
+        if not serotype:
+            return ""
+        return f"hDenV{serotype[-1]}/Brazil/{region}/{year}"
+    if kind == "vsr":
+        subtype = normalize_rsv_subtype(row.get("Subtipo"))
+        if not subtype:
+            return ""
+        return f"hRSV/{subtype}/Brazil/{region}/{year}"
+    return ""
 
 
 def normalize_dengue_serotype(value):
@@ -348,7 +391,7 @@ def write_xlsx(path, headers, rows):
         "Software Montagem": 20,
         "Versão software": 16, "Versão primer": 18, "Versão Pangolin": 16,
         "Reads": 12, "Profundidade Média": 18, "Cobertura": 12,
-        "Sorotipo": 12, "Subtipo": 12, "Linhagem": 20, "Genótipo": 20, "Origem da Tipagem": 22, "Alerta de Tipagem": 62,
+        "Sorotipo": 12, "Subtipo": 12, "Linhagem": 20, "Genótipo": 20,
         "Nome da Sequencia": 20,
     }
     cols = ''.join(
@@ -469,6 +512,13 @@ def main():
             kind, typing_meta, nc_by_code.get(code), blast_by_code.get(code, [])
         )
         detailed_typing = fmt_lineage(nc_by_code.get(code))
+        naming_row = dict(meta)
+        if kind == "dengue":
+            naming_row["Sorotipo"] = typing_value
+        elif kind == "vsr":
+            naming_row["Subtipo"] = typing_value
+            naming_row["Genótipo"] = detailed_typing or meta.get("Genótipo", "")
+        sequence_name = build_sequence_name(kind, naming_row, code)
         row = []
         for h in headers:
             if h == "Vírus":
@@ -479,8 +529,10 @@ def main():
                 row.append(args.software_name)
             elif h == "Versão software":
                 row.append(args.software_version)
-            elif h in ("Versão primer", "Versão Pangolin", "Nome da Sequencia"):
+            elif h in ("Versão primer", "Versão Pangolin"):
                 row.append("")
+            elif h == "Nome da Sequencia":
+                row.append(sequence_name)
             elif h == "Reads":
                 row.append(read_count)
             elif h == "Profundidade Média":
@@ -493,10 +545,6 @@ def main():
                 row.append(typing_value)
             elif h in ("Linhagem", "Genótipo"):
                 row.append(detailed_typing or meta.get(h, ""))
-            elif h == "Origem da Tipagem":
-                row.append(typing_source)
-            elif h == "Alerta de Tipagem":
-                row.append(typing_alert)
             else:
                 row.append("")
         output_rows.append(row)

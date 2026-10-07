@@ -26,7 +26,7 @@ class GisaidSubmissionTests(unittest.TestCase):
         "Vírus", "Código Amostra", "Data Coleta", "Município",
         "UF município solicitante", "Idade", "Tipo Idade", "Sexo",
         "Tecnologia de Sequenciamento", "Submissor", "Lab_Origem", "Lab_Submissão", "Endereço",
-        "Autores", "Código da Região", "Sorotipo", "Genótipo",
+        "Autores", "Código da Região", "Sorotipo", "Subtipo", "Genótipo",
     ]
 
     @staticmethod
@@ -69,7 +69,7 @@ class GisaidSubmissionTests(unittest.TestCase):
         row = [
             "DENV2", "SAMPLE01", "2026-09-20", "Maceió", "AL", "30", "anos", "Feminino",
             "Illumina NextSeq 2000", "submitter", "LACEN-AL", "LACEN-AL", "Maceió, AL, Brasil",
-            "Jean Nascimento", "AL", "DENV2", "",
+            "Jean Nascimento", "AL", "DENV2", "", "",
         ]
         out_xls, out_fasta = self.run_submission("dengue", row, ">SAMPLE01\nACGT\n")
         self.assertEqual(self.read_submission_field(out_xls, "arbo_subtype"), "DENV2")
@@ -81,7 +81,7 @@ class GisaidSubmissionTests(unittest.TestCase):
         row = [
             "VSR", "SAMPLE02", "2026-09-21", "Maceió", "AL", "8", "meses", "",
             "", "submitter", "LACEN-AL", "LACEN-AL", "Maceió, AL, Brasil",
-            "Jean Nascimento", "AL", "", "A",
+            "Jean Nascimento", "AL", "", "A", "A.D.1",
         ]
         out_xls, out_fasta = self.run_submission("vsr", row, ">SAMPLE02|segment-A\nTGCA\n")
         self.assertEqual(self.read_submission_field(out_xls, "rsv_subtype"), "A")
@@ -139,7 +139,7 @@ class GisaidSubmissionTests(unittest.TestCase):
             row = [
                 "DENV2", "SAMPLE03", "2026-09-22", "Maceió", "AL", "20", "anos", "Feminino",
                 "Illumina", "submitter", "LACEN-AL", "LACEN-AL", "Maceió, AL, Brasil",
-                "Jean Nascimento", "AL", "DENV2", "", "Conflito DENV2 x DENV3",
+                "Jean Nascimento", "AL", "DENV2", "", "", "Conflito DENV2 x DENV3",
             ]
             metadata_xlsx = root / "metadata.xlsx"
             metadata_module.write_xlsx(metadata_xlsx, headers, [row])
@@ -154,6 +154,28 @@ class GisaidSubmissionTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0)
             self.assertFalse((root / "out.xls").exists())
             self.assertIn("alerta de tipagem", completed.stderr)
+
+    def test_dengue_does_not_bypass_blank_normalized_serotype(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = [
+                "DENV2", "SAMPLE04", "2026-09-23", "Maceió", "AL", "25", "anos", "Feminino",
+                "Illumina", "submitter", "LACEN-AL", "LACEN-AL", "Maceió, AL, Brasil",
+                "Jean Nascimento", "AL", "", "", "",
+            ]
+            metadata_xlsx = root / "metadata.xlsx"
+            metadata_module.write_xlsx(metadata_xlsx, self.headers, [row])
+            fasta = root / "sample.fa"
+            fasta.write_text(">SAMPLE04\nACGT\n", encoding="utf-8")
+            completed = subprocess.run([
+                sys.executable, str(SCRIPT), "--metadata-xlsx", str(metadata_xlsx),
+                "--consensus-fasta", str(fasta), "--virus", "dengue",
+                "--templates-dir", str(TEMPLATES), "--vendor-dir", str(WHEELS),
+                "--out-xls", str(root / "out.xls"), "--out-fasta", str(root / "out.fasta"),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0)
+            self.assertFalse((root / "out.xls").exists())
+            self.assertIn("sorotipo ausente", completed.stderr)
 
     def test_rejects_missing_vendored_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:

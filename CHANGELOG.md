@@ -24,3 +24,5 @@ All notable changes to MK-Viral-Assembly are recorded here. Changes under
   unambiguous contig matching.
 - Add a machine-readable parameter schema and regression tests for the new
   outputs and mixed-virus metadata matching.
+- Simplify `metadata_<virus>.xlsx` by removing the empty typing provenance and
+  alert columns, and populate `Nome da Sequencia` with the exact GISAID `Virus name`.

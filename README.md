@@ -479,10 +479,11 @@ for the consolidated workbook, but the additional fields listed above are requir
 
 For Dengue, `Sorotipo` is normalized to `DENV1`–`DENV4`. For RSV/VSR, `Subtipo` is normalized to `A` or `B`, while a
 detailed lineage such as `A.D.1` remains in `Genótipo`. The pipeline prefers an unambiguous analytical call from
-Nextclade and/or BLAST, checks it against the declared metadata, and records `Origem da Tipagem`. If analytical sources
-disagree, or an analytical call disagrees with the declared value, `Alerta de Tipagem` explains the conflict and that
-sample is omitted from the automatic GISAID bundle until reviewed. When no analytical call is available, a valid
-declared value is used.
+Nextclade and/or BLAST and checks it against the declared metadata. Sources and conflicts are reported in the execution
+log; a conflicted sample keeps the automatic subtype/serotype blank and is omitted from the automatic GISAID bundle
+until reviewed. When no analytical call is available, a valid declared value is used. The final `Nome da Sequencia`
+column is populated, when the required naming fields are available, with exactly the same value written to the
+GISAID spreadsheet's `Virus name` field.
 
 Add six more columns — `Submissor`, `Lab_Origem`, `Lab_Submissão`, `Endereço`,
 `Autores`, `Código da Região` — and the pipeline additionally writes a ready-to-use
