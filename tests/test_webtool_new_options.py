@@ -27,6 +27,7 @@ class WebToolNewOptionsTests(unittest.TestCase):
                 "input_mode": "single", "raw_data_dir": str(reads),
                 "reference": str(reference), "primer_bed": str(bed), "gff": str(gff),
                 "outdir": str(root / "results"), "snpeff": True,
+                "max_cpus": 1,
                 "nextclade": False, "blast": False,
             }
             with patch.object(api, "NEXTFLOW", Path("/bin/echo")):

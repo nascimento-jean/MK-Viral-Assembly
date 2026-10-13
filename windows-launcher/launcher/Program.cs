@@ -77,7 +77,7 @@ internal sealed class LauncherEngine : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MK-Viral-Assembly");
 
-    private const string ReleaseRef = "v1.2.7";
+    private const string ReleaseRef = "v1.2.5";
     private const string ReleaseRevision = "feature-parity-2026-10-13";
     public string? PickerDirectory { get; set; }
     public event Action<string>? Message;

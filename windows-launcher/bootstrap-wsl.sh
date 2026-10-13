@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPOSITORY="${MKVA_REPOSITORY:-https://github.com/nascimento-jean/MK-Viral-Assembly}"
-RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.7}"
+RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.5}"
 RELEASE_REVISION="${MKVA_RELEASE_REVISION:-feature-parity-2026-10-13}"
 INSTALL_DIR="${MKVA_INSTALL_DIR:-$HOME/MK-Viral-Assembly}"
 MINIFORGE_DIR="${MKVA_CONDA_DIR:-$HOME/miniforge3}"

@@ -1,5 +1,5 @@
 #define MyAppName "MK-Viral-Assembly"
-#define MyAppVersion "1.2.7"
+#define MyAppVersion "1.2.5"
 #define MyAppPublisher "MK-Viral-Assembly"
 #define MyAppExeName "MK-Viral-Assembly.exe"
 
