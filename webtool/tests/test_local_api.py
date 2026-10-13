@@ -14,6 +14,28 @@ import local_api
 
 
 class SelfTestTests(unittest.TestCase):
+    def test_native_picker_check_uses_the_current_platform(self):
+        for in_wsl, zenity, bridge, expected in (
+            (False, "/usr/bin/zenity", False, "PASS"),
+            (False, None, False, "WARN"),
+            (True, None, True, "PASS"),
+            (True, "/usr/bin/zenity", False, "WARN"),
+        ):
+            with self.subTest(in_wsl=in_wsl, zenity=zenity, bridge=bridge):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    with patch.object(local_api, "SELF_TEST_STATE", root / "state.json"), \
+                         patch.object(local_api, "SELF_TEST_LOG", root / "test.log"), \
+                         patch.object(local_api, "RUNNING_IN_WSL", in_wsl), \
+                         patch.object(local_api, "LINUX_ZENITY", zenity), \
+                         patch.object(local_api, "picker_bridge_available", return_value=bridge), \
+                         patch.object(local_api, "_run_fixed_check", return_value=(
+                             local_api._self_test_check("runtime", "PASS", "ok"), "ok")):
+                        result = local_api.run_self_test("quick")
+                    picker = next(check for check in result["checks"]
+                                  if check["label"] == "Seletor nativo de arquivos")
+                    self.assertEqual(picker["status"], expected)
+
     def test_rejects_unknown_level(self):
         with self.assertRaisesRegex(ValueError, "quick ou complete"):
             local_api.run_self_test("arbitrary")
@@ -31,11 +53,12 @@ class SelfTestTests(unittest.TestCase):
 
             with patch.object(local_api, "SELF_TEST_STATE", state),                  patch.object(local_api, "SELF_TEST_LOG", log),                  patch.object(local_api, "NEXTFLOW", Path("/bin/echo")),                  patch.object(local_api, "picker_bridge_available", return_value=True),                  patch.object(local_api, "find_nf_test", return_value=Path("/bin/echo")),                  patch.object(local_api, "_run_fixed_check", side_effect=fixed):
                 result = local_api.run_self_test("complete")
+                persisted = local_api.load_self_test()
 
             self.assertIn(result["overall"], {"PASS", "WARN"})
             self.assertTrue(state.is_file())
             self.assertTrue(log.is_file())
-            self.assertEqual(local_api.load_self_test()["level"], "complete")
+            self.assertEqual(persisted["level"], "complete")
             labels = [label for label, _command, _timeout, _env in calls]
             self.assertEqual(labels, [
                 "Nextflow e Java", "Compilação do grafo do pipeline",

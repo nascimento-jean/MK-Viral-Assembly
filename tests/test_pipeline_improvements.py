@@ -255,7 +255,7 @@ class PipelineImprovementTests(unittest.TestCase):
         windows = (ROOT / "windows-launcher" / "bootstrap-wsl.sh").read_text(encoding="utf-8")
         linux = (ROOT / "linux-launcher" / "bootstrap-linux.sh").read_text(encoding="utf-8")
         for expected in (
-            'RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.6}"',
+            'RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.7}"',
             'RELEASE_REVISION="${MKVA_RELEASE_REVISION:-feature-parity-2026-10-13}"',
             'NF_TEST_VERSION="${MKVA_NF_TEST_VERSION:-0.9.5}"',
             "https://get.nf-test.com",

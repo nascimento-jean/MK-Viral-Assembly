@@ -876,11 +876,16 @@ def run_self_test(level: str) -> dict[str, Any]:
             "; ".join(compile_errors) if compile_errors else f"{len(python_sources)} arquivos válidos",
         ))
 
+        if RUNNING_IN_WSL:
+            picker_ready = picker_bridge_available()
+            picker_message = ("Ponte do seletor conectada" if picker_ready else
+                              "Ponte não detectada nesta sessão; reinicie pelo atalho do MK-Viral-Assembly")
+        else:
+            picker_ready = bool(LINUX_ZENITY)
+            picker_message = ("Seletor Zenity disponível" if picker_ready else
+                              "Seletor não encontrado; instale o pacote zenity")
         checks.append(_self_test_check(
-            "Seletor nativo do Windows",
-            "PASS" if picker_bridge_available() else "WARN",
-            "Ponte do seletor conectada" if picker_bridge_available()
-            else "Ponte não detectada nesta sessão; reinicie pelo atalho do MK-Viral-Assembly",
+            "Seletor nativo de arquivos", "PASS" if picker_ready else "WARN", picker_message,
         ))
 
         env = os.environ.copy()
