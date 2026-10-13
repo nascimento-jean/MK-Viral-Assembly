@@ -50,6 +50,10 @@ if DEFAULT_PROFILE not in ALLOWED_PROFILES:
 ALLOWED_INPUT_MODES = {"single", "mixed"}
 LOCK = threading.Lock()
 PROCESSES: dict[str, subprocess.Popen[str]] = {}
+SELF_TEST_LOCK = threading.Lock()
+SELF_TEST_STATE = DATA_DIR / "self-test.json"
+SELF_TEST_LOG = LOG_DIR / "self-test.log"
+ANSI_ESCAPE = re.compile(r"\x1B(?:\[[0-?]*[ -/]*[@-~]|[()][A-Z0-9]|[@-Z\\-_])")
 
 
 def ensure_runtime_dirs() -> None:
@@ -450,6 +454,7 @@ def build_command(payload: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
         "nextclade": nextclade_enabled,
         "nextclade_dataset": nextclade_dataset,
         "blast": bool(payload.get("blast")),
+        "snpeff": bool(payload.get("snpeff")),
         "kraken": kraken_enabled,
         "deplete": bool(payload.get("deplete")) and kraken_enabled,
     }
@@ -463,7 +468,8 @@ def build_command(payload: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
            "--min_qual", str(normalized["min_qual"]),
            "--min_map_qual", str(normalized["min_map_qual"]), "--max_cpus", str(normalized["max_cpus"]),
            "--max_memory", f"{normalized['max_memory']}.GB", "--nextclade", str(normalized["nextclade"]).lower(),
-           "--blast_id", str(normalized["blast"]).lower()]
+           "--blast_id", str(normalized["blast"]).lower(),
+           "--snpeff", str(normalized["snpeff"]).lower()]
     if normalized["input_mode"] == "single":
         cmd.extend(["--reference", normalized["reference"], "--virus", normalized["virus"]])
         if normalized["nextclade_dataset"]:
@@ -762,6 +768,192 @@ def sample_records(job: dict[str, Any]) -> list[dict[str, Any]]:
     } for sample, values in sorted(records.items())]
 
 
+def _self_test_check(label: str, status: str, message: str, duration: float = 0.0) -> dict[str, Any]:
+    return {
+        "label": label,
+        "status": status,
+        "message": message,
+        "duration_seconds": round(duration, 2),
+    }
+
+
+def _run_fixed_check(label: str, command: list[str], env: dict[str, str],
+                     timeout: int = 120) -> tuple[dict[str, Any], str]:
+    started = time.monotonic()
+    rendered = " ".join(command)
+    try:
+        completed = subprocess.run(
+            command, cwd=PROJECT_DIR, env=env, capture_output=True, text=True,
+            timeout=timeout, check=False,
+        )
+        output = ANSI_ESCAPE.sub("", (completed.stdout or "") + (completed.stderr or "")).strip()
+        duration = time.monotonic() - started
+        if completed.returncode == 0:
+            tail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "Concluído")
+            return _self_test_check(label, "PASS", tail[:300], duration), (
+                f"$ {rendered}\n{output}\n[exit={completed.returncode}; {duration:.2f}s]\n"
+            )
+        message = next((line.strip() for line in reversed(output.splitlines()) if line.strip()),
+                       f"Exit status {completed.returncode}")
+        return _self_test_check(label, "FAIL", message[:300], duration), (
+            f"$ {rendered}\n{output}\n[exit={completed.returncode}; {duration:.2f}s]\n"
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration = time.monotonic() - started
+        output = ANSI_ESCAPE.sub("", ((exc.stdout or "") if isinstance(exc.stdout, str) else "") +
+                                 ((exc.stderr or "") if isinstance(exc.stderr, str) else "")).strip()
+        return _self_test_check(label, "FAIL", f"Tempo limite de {timeout}s excedido", duration), (
+            f"$ {rendered}\n{output}\n[timeout={timeout}s]\n"
+        )
+    except OSError as exc:
+        duration = time.monotonic() - started
+        return _self_test_check(label, "FAIL", str(exc), duration), (
+            f"$ {rendered}\n{exc}\n[failed to start]\n"
+        )
+
+
+def find_nf_test() -> Path | None:
+    configured = os.environ.get("MKVA_NF_TEST", "").strip()
+    candidates = [
+        Path(configured) if configured else None,
+        PROJECT_DIR / "tools" / "nf-test",
+        Path.home() / ".local" / "bin" / "nf-test",
+    ]
+    discovered = shutil.which("nf-test")
+    if discovered:
+        candidates.append(Path(discovered))
+    for candidate in candidates:
+        if candidate and candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate.resolve()
+    return None
+
+
+def load_self_test() -> dict[str, Any] | None:
+    try:
+        payload = json.loads(SELF_TEST_STATE.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def run_self_test(level: str) -> dict[str, Any]:
+    if level not in {"quick", "complete"}:
+        raise ValueError("Nível de autoteste inválido; use quick ou complete")
+    if not SELF_TEST_LOCK.acquire(blocking=False):
+        raise ValueError("Um autoteste já está em execução")
+    started_wall = now()
+    started = time.monotonic()
+    checks: list[dict[str, Any]] = []
+    log_parts = [f"MK-Viral-Assembly self-test ({level})", f"Started: {started_wall}", ""]
+
+    try:
+        required = [
+            PROJECT_DIR / "main.nf",
+            PROJECT_DIR / "nextflow.config",
+            PROJECT_DIR / "nextflow_schema.json",
+            PROJECT_DIR / "bin" / "isnv_filter.py",
+            PROJECT_DIR / "bin" / "snpeff_summary.py",
+            PROJECT_DIR / "bin" / "make_dashboard.py",
+            PROJECT_DIR / "tests" / "nf-test",
+        ]
+        missing = [str(path.relative_to(PROJECT_DIR)) for path in required if not path.exists()]
+        checks.append(_self_test_check(
+            "Arquivos essenciais",
+            "FAIL" if missing else "PASS",
+            "Ausentes: " + ", ".join(missing) if missing else f"{len(required)} componentes encontrados",
+        ))
+
+        compile_errors = []
+        python_sources = sorted((PROJECT_DIR / "bin").glob("*.py")) + [Path(__file__).resolve()]
+        for source in python_sources:
+            try:
+                compile(source.read_text(encoding="utf-8"), str(source), "exec")
+            except (OSError, SyntaxError, UnicodeError) as exc:
+                compile_errors.append(f"{source.name}: {exc}")
+        checks.append(_self_test_check(
+            "Sintaxe dos componentes Python",
+            "FAIL" if compile_errors else "PASS",
+            "; ".join(compile_errors) if compile_errors else f"{len(python_sources)} arquivos válidos",
+        ))
+
+        checks.append(_self_test_check(
+            "Seletor nativo do Windows",
+            "PASS" if picker_bridge_available() else "WARN",
+            "Ponte do seletor conectada" if picker_bridge_available()
+            else "Ponte não detectada nesta sessão; reinicie pelo atalho do MK-Viral-Assembly",
+        ))
+
+        env = os.environ.copy()
+        env["NXF_ANSI_LOG"] = "false"
+        java_path = shutil.which(str(JAVA_CMD)) or str(JAVA_CMD)
+        if java_path and Path(java_path).name.lower() in {"java", "java.exe"}:
+            java_home = Path(java_path).resolve().parent.parent
+            if java_home.is_dir():
+                env["JAVA_HOME"] = str(java_home)
+                env["PATH"] = str(java_home / "bin") + os.pathsep + env.get("PATH", "")
+
+        nextflow_path = shutil.which(str(NEXTFLOW)) or (str(NEXTFLOW) if NEXTFLOW.is_file() else "")
+        if nextflow_path:
+            # nf-test starts Nextflow as a child process and resolves it from PATH.
+            # The WebTool may find Nextflow through its configured absolute path
+            # even when that directory is absent from the launcher's PATH, so make
+            # the same executable discoverable to nf-test as well.
+            nextflow_bin_dir = str(Path(nextflow_path).resolve().parent)
+            path_entries = env.get("PATH", "").split(os.pathsep)
+            if nextflow_bin_dir not in path_entries:
+                env["PATH"] = nextflow_bin_dir + os.pathsep + env.get("PATH", "")
+            check, output = _run_fixed_check("Nextflow e Java", [nextflow_path, "-version"], env, 45)
+            checks.append(check); log_parts.append(output)
+            check, output = _run_fixed_check(
+                "Compilação do grafo do pipeline",
+                [nextflow_path, "run", "main.nf", "--help", "-ansi-log", "false"],
+                env, 120,
+            )
+            checks.append(check); log_parts.append(output)
+        else:
+            checks.append(_self_test_check("Nextflow e Java", "FAIL", "Executável Nextflow não encontrado"))
+            checks.append(_self_test_check("Compilação do grafo do pipeline", "FAIL",
+                                           "Não executado porque o Nextflow não está disponível"))
+
+        if level == "complete":
+            nf_test = find_nf_test()
+            if nf_test:
+                check, output = _run_fixed_check(
+                    "nf-test com dados sintéticos",
+                    [str(nf_test), "test", "tests/nf-test", "--ci", "--without-trace"],
+                    env, 300,
+                )
+                checks.append(check); log_parts.append(output)
+            else:
+                checks.append(_self_test_check(
+                    "nf-test com dados sintéticos", "FAIL",
+                    "nf-test não encontrado; reinstale ou repare a instalação da WebTool",
+                ))
+
+        if any(check["status"] == "FAIL" for check in checks):
+            overall = "FAIL"
+        elif any(check["status"] == "WARN" for check in checks):
+            overall = "WARN"
+        else:
+            overall = "PASS"
+        finished = now()
+        result = {
+            "level": level,
+            "overall": overall,
+            "started_at": started_wall,
+            "finished_at": finished,
+            "duration_seconds": round(time.monotonic() - started, 2),
+            "checks": checks,
+            "log": "\n".join(log_parts).strip() + "\n",
+        }
+        ensure_runtime_dirs()
+        SELF_TEST_LOG.write_text(result["log"], encoding="utf-8")
+        SELF_TEST_STATE.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        return result
+    finally:
+        SELF_TEST_LOCK.release()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "MKVAWebtool/0.1"
 
@@ -814,6 +1006,13 @@ class Handler(BaseHTTPRequestHandler):
             if not file.is_file():
                 self.json_response(404, {"error": "Modelo de metadados não encontrado"}); return
             self.file_response(file.read_bytes(), content_type, file.name); return
+        if path == "/api/self-test":
+            result = load_self_test()
+            if result is None:
+                self.json_response(200, {"available": False})
+            else:
+                self.json_response(200, {"available": True, **result})
+            return
         if path == "/api/health":
             self.json_response(200, {"ok": True, "project": str(PROJECT_DIR),
                                      "service_protocol": 2,
@@ -894,6 +1093,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             payload = self.read_json()
+            if path == "/api/self-test":
+                level = clean_text(payload.get("level") or "quick", "Nível do autoteste", required=True)
+                self.json_response(200, run_self_test(level)); return
             if path == "/api/picker":
                 self.json_response(200, pick_local_path(payload)); return
             if path == "/api/samplesheet":

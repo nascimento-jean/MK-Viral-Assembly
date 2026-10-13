@@ -269,18 +269,28 @@ include { KRONA             } from './modules/local/krona'
 include { KRONA as KRONA_VALIDATION } from './modules/local/krona'
 include { TAXONOMY_SUMMARY  } from './modules/local/taxonomy_summary'
 include { ALIGN             } from './subworkflows/local/align'
+include { ALIGN as ALIGN_ITERATIVE } from './subworkflows/local/align'
 include { SAMPLE_VALIDATION } from './modules/local/sample_validation'
 include { IVAR_TRIM         } from './modules/local/ivar_trim'
 include { SAMTOOLS_STATS    } from './modules/local/samtools_stats'
+include { SAMTOOLS_STATS as SAMTOOLS_STATS_ITERATIVE } from './modules/local/samtools_stats'
 include { IVAR_VARIANTS     } from './modules/local/ivar_variants'
 include { ANNOTATE_AA       } from './modules/local/annotate_aa'
 include { VARIANTS_VCF      } from './modules/local/variants_vcf'
 include { MIXED_SITES       } from './modules/local/mixed_sites'
+include { ISNV_CALL         } from './modules/local/isnv_call'
+include { ISNV_FILTER       } from './modules/local/isnv_filter'
 include { IVAR_CONSENSUS    } from './modules/local/ivar_consensus'
+include { IVAR_CONSENSUS as IVAR_CONSENSUS_ITERATIVE } from './modules/local/ivar_consensus'
 include { CAT_CONSENSUS     } from './modules/local/cat_consensus'
 include { CONSENSUS_QC      } from './modules/local/consensus_qc'
+include { CONSENSUS_QC as CONSENSUS_QC_ITERATIVE } from './modules/local/consensus_qc'
 include { AMPLICON_COVERAGE } from './modules/local/amplicon_coverage'
 include { CODING_QC         } from './modules/local/coding_qc'
+include { SNPEFF_ANNOTATE; SNPSIFT_FILTER } from './modules/local/snpeff'
+include { BAM_TO_FASTQ      } from './modules/local/bam_to_fastq'
+include { ITERATIVE_COMPARE } from './modules/local/iterative_compare'
+include { PROVENANCE_SUMMARY } from './modules/local/provenance'
 include { READ_STATS        } from './modules/local/read_stats'
 include { NEXTCLADE_DATASET_GET } from './modules/local/nextclade_dataset'
 include { NEXTCLADE_RUN     } from './modules/local/nextclade'
@@ -471,78 +481,116 @@ workflow {
     }
 
     //
-    // Map reads to the (per-sample) reference
+    // User-supplied reference branch.
     //
     ALIGN ( ch_align_in )
-    ch_bam = ALIGN.out.bam    // [ meta, bam, bai, reference ]
+    ch_bam_manual = ALIGN.out.bam
 
-    //
-    // Optional amplicon primer trimming (per-sample BED).
-    // Each sample carries its own primer BED (samplesheet 'bed_file' column, or
-    // the global --primer_bed). Samples whose BED is the NO_FILE sentinel skip
-    // trimming and pass through untouched, so a mixed run can trim CHIKV, DENV,
-    // ... each with its own primer scheme while amplicon-free samples are spared.
-    //
-    ch_bam_bed = ch_bam.join( ch_bed )        // [ meta, bam, bai, reference, bed ]
+    ch_bam_bed_manual = ch_bam_manual.join( ch_bed )
         .branch { meta, bam, bai, ref, bed ->
-            trim: bed.name != 'NO_FILE'
+            trim: bed.size() > 0
             keep: true
         }
-    IVAR_TRIM ( ch_bam_bed.trim )             // input tuple includes the per-sample bed
-    ch_bam_final = IVAR_TRIM.out.bam
-        .mix( ch_bam_bed.keep.map { meta, bam, bai, ref, bed -> [ meta, bam, bai, ref ] } )
+    IVAR_TRIM ( ch_bam_bed_manual.trim )
+    ch_bam_manual_final = IVAR_TRIM.out.bam
+        .mix( ch_bam_bed_manual.keep.map { meta, bam, bai, ref, bed -> [ meta, bam, bai, ref ] } )
 
-    //
-    // Alignment statistics
-    //
-    SAMTOOLS_STATS ( ch_bam_final )
+    SAMTOOLS_STATS ( ch_bam_manual_final )
+    IVAR_CONSENSUS ( ch_bam_manual_final )
+    CONSENSUS_QC ( IVAR_CONSENSUS.out.consensus.join( SAMTOOLS_STATS.out.depth ) )
+
+    // Every downstream analysis uses exactly the reference, GFF3 and BED
+    // supplied by the user (globally or per sample in Mixed mode).
+    ch_bam_final = ch_bam_manual_final
+    ch_gff_final = ch_gff
+    ch_bed_final = ch_bed
+    ch_depth_final = SAMTOOLS_STATS.out.depth
+    ch_consensus_final = IVAR_CONSENSUS.out.consensus
+    ch_qc_final = CONSENSUS_QC.out.tsv
+
     ch_multiqc = ch_multiqc.mix( SAMTOOLS_STATS.out.stats.map { it[1] } )
 
-    // Per-amplicon coverage and primer-dropout warnings when a BED is supplied.
-    ch_amplicon_in = SAMTOOLS_STATS.out.depth
-        .join(ch_bed)
-        .filter { meta, depth, bed -> bed.name != 'NO_FILE' }
+    // Coverage by amplicon uses the user-supplied reference and matching BED.
+    ch_amplicon_in = ch_depth_final
+        .join(ch_bed_final)
+        .filter { meta, depth, bed -> bed.size() > 0 }
     AMPLICON_COVERAGE (
         ch_amplicon_in,
         file("$projectDir/bin/amplicon_coverage.py", checkIfExists: true)
     )
 
     //
-    // Variant calling and consensus generation (iVar)
+    // Variant calling and consensus-derived analyses use the user-supplied reference.
     //
-    // attach the per-sample GFF (or NO_FILE sentinel) to the BAM channel
-    ch_bam_gff = ch_bam_final.join( ch_gff )   // [ meta, bam, bai, reference, gff ]
+    ch_bam_gff = ch_bam_final.join( ch_gff_final )
     IVAR_VARIANTS  ( ch_bam_gff )
-    // amino-acid annotation runs in a Python container (the iVar image has no python)
     ANNOTATE_AA    ( IVAR_VARIANTS.out.tsv )
     VARIANTS_VCF (
         ANNOTATE_AA.out.tsv,
         file("$projectDir/bin/ivar_tsv_to_vcf.py", checkIfExists: true)
     )
 
-    // intra-sample heterozygosity screen (contamination / co-infection signal)
+    // Explicit iSNV calling is intentionally independent of the surveillance consensus.
+    ISNV_CALL ( ch_bam_final )
+    ISNV_FILTER (
+        ISNV_CALL.out.tsv,
+        file("$projectDir/bin/isnv_filter.py", checkIfExists: true)
+    )
+    ch_isnv = ISNV_FILTER.out.tsv
+
+    // Retain the compact mixed-site summary for run-level contamination screening.
     ch_mixed = Channel.empty()
     if (!params.skip_mixed_sites) {
         MIXED_SITES ( ch_bam_final )
         ch_mixed = MIXED_SITES.out.tsv
     }
 
-    IVAR_CONSENSUS ( ch_bam_final )
-
-    // Generic coding-integrity checks for references with a GFF3. This is
-    // independent of Nextclade and therefore also covers uncatalogued viruses.
-    ch_coding_in = IVAR_CONSENSUS.out.consensus
-        .join(ch_gff)
-        .filter { meta, consensus, gff -> gff.name != 'NO_FILE' }
+    ch_coding_in = ch_consensus_final
+        .join(ch_gff_final)
+        .filter { meta, consensus, gff -> gff.size() > 0 }
     CODING_QC (
         ch_coding_in,
         file("$projectDir/bin/coding_qc.py", checkIfExists: true)
     )
 
-    //
-    // Per-genome QC summary (coverage breadth, mean depth, N%, length)
-    //
-    CONSENSUS_QC ( IVAR_CONSENSUS.out.consensus.join( SAMTOOLS_STATS.out.depth ) )
+    // Optional functional annotation against a database built from the exact
+    // user-supplied FASTA and GFF3 for each sample.
+    ch_snpeff = Channel.empty()
+    if (params.snpeff) {
+        ch_snpeff_in = VARIANTS_VCF.out.vcf
+            .join( ch_bam_final.map { meta, bam, bai, ref -> [ meta, ref ] } )
+            .join( ch_gff_final )
+            .filter { meta, vcf, ref, gff -> gff.size() > 0 }
+        SNPEFF_ANNOTATE ( ch_snpeff_in )
+        SNPSIFT_FILTER (
+            SNPEFF_ANNOTATE.out.annotated,
+            file("$projectDir/bin/snpeff_summary.py", checkIfExists: true)
+        )
+        ch_snpeff = SNPSIFT_FILTER.out.tsv
+    }
+
+    // Experimental CLI-only evaluation. Primer-trimmed alignments are converted
+    // back to reads, mapped to the first consensus and compared without replacing
+    // the official final consensus.
+    ch_iterative = Channel.empty()
+    if (params.iterative_reference_eval) {
+        BAM_TO_FASTQ ( ch_bam_final )
+        ch_iterative_align = BAM_TO_FASTQ.out.reads
+            .map { meta, reads, old_ref -> [ meta, reads ] }
+            .join( ch_consensus_final )
+            .map { meta, reads, consensus -> [ meta, reads, consensus ] }
+        ALIGN_ITERATIVE ( ch_iterative_align )
+        SAMTOOLS_STATS_ITERATIVE ( ALIGN_ITERATIVE.out.bam )
+        IVAR_CONSENSUS_ITERATIVE ( ALIGN_ITERATIVE.out.bam )
+        CONSENSUS_QC_ITERATIVE (
+            IVAR_CONSENSUS_ITERATIVE.out.consensus.join( SAMTOOLS_STATS_ITERATIVE.out.depth )
+        )
+        ITERATIVE_COMPARE (
+            ch_qc_final.join( CONSENSUS_QC_ITERATIVE.out.tsv ),
+            file("$projectDir/bin/iterative_compare.py", checkIfExists: true)
+        )
+        ch_iterative = ITERATIVE_COMPARE.out.tsv
+    }
 
     //
     // Per-sample read accounting for the dashboard: raw reads, reads surviving
@@ -572,7 +620,7 @@ workflow {
         // [ vdir, consensus, ds_string ] — group key is the VIRUS (so DENV1/DENV2
         // land in separate folders even though both use the 'dengue' dataset),
         // carrying the per-sample dataset string; drop samples with no dataset.
-        ch_cons_by_group = IVAR_CONSENSUS.out.consensus
+        ch_cons_by_group = ch_consensus_final
             .join( ch_ncds )                                   // [ meta, consensus, ds_string ]
             .filter { meta, cons, ds -> ds && ds.toString().trim() }
             .map { meta, cons, ds -> [ meta.vdir, cons, ds ] } // [ vdir, consensus, ds_string ]
@@ -616,7 +664,7 @@ workflow {
     if (params.blast_id) {
         BLAST_DB_PREP ()
         // one BLAST run per virus: group each virus' consensus genomes, reuse the DB
-        ch_blast_cons = IVAR_CONSENSUS.out.consensus
+        ch_blast_cons = ch_consensus_final
             .map { meta, cons -> [ meta.vdir, cons ] }
             .groupTuple()                                      // [ vdir, [consensus...] ]
         BLASTN_ID (
@@ -635,8 +683,8 @@ workflow {
     //
     if (!params.skip_combine) {
         // group each virus' consensus genomes + QC tables -> [ vdir, [cons...], [qc...] ]
-        ch_cat_in = IVAR_CONSENSUS.out.consensus
-            .join( CONSENSUS_QC.out.tsv )              // [ meta, consensus, qc ]
+        ch_cat_in = ch_consensus_final
+            .join( ch_qc_final )              // [ meta, consensus, qc ]
             .map { meta, cons, qc -> [ meta.vdir, cons, qc ] }
             .groupTuple()
         CAT_CONSENSUS ( ch_cat_in )
@@ -648,7 +696,7 @@ workflow {
     if (!params.skip_multiqc) {
         MULTIQC (
             ch_multiqc.collect().ifEmpty([]),
-            CONSENSUS_QC.out.tsv.map { it[1] }.collect().ifEmpty([]),
+            ch_qc_final.map { it[1] }.collect().ifEmpty([]),
             file("$projectDir/assets/multiqc_config.yml", checkIfExists: false)
         )
     }
@@ -659,15 +707,27 @@ workflow {
     // metrics. Only PASS/WARN samples are included.
     //
     if (params.metadata) {
-        ch_meta_qc    = CONSENSUS_QC.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_meta_qc    = ch_qc_final.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_meta_reads = ch_read_stats.map        { meta, f -> [ meta.vdir, f ] }.groupTuple()
-        ch_meta_in = ch_meta_qc
-            .join(ch_meta_reads, remainder: true)
-            .join(ch_nextclade, remainder: true)
-            .join(ch_blast, remainder: true)
-            .map { vdir, qc_files, read_files, nc_file, blast_file ->
-                [ vdir, qc_files ?: [], read_files ?: [], nc_file ?: [], blast_file ?: [] ]
+
+        // Tag and aggregate optional sources into fixed slots.  Only groups
+        // with consensus-QC are eligible for metadata/GISAID exports; a virus
+        // represented solely by skipped inputs still receives its validation
+        // dashboard but must not launch an empty submission workbook.
+        ch_meta_tagged = ch_meta_qc.map    { vdir, files -> [vdir, 'qc', files] }
+            .mix(ch_meta_reads.map          { vdir, files -> [vdir, 'reads', files] })
+            .mix(ch_nextclade.map           { vdir, file  -> [vdir, 'nextclade', file] })
+            .mix(ch_blast.map               { vdir, file  -> [vdir, 'blast', file] })
+
+        ch_meta_in = ch_meta_tagged
+            .groupTuple(by: 0)
+            .map { vdir, tags, values ->
+                def slots = [qc: [], reads: [], nextclade: [], blast: []]
+                tags.eachWithIndex { tag, idx -> slots[tag] = values[idx] }
+                [vdir, slots.qc ?: [], slots.reads ?: [],
+                 slots.nextclade ?: [], slots.blast ?: []]
             }
+            .filter { row -> row[1] }
         METADATA_XLSX (
             ch_meta_in,
             file(params.metadata, checkIfExists: true)
@@ -685,7 +745,7 @@ workflow {
         // a virus GISAID isn't configured for here, are skipped with a
         // warning rather than failing the run.
         //
-        ch_gisaid_consensus = IVAR_CONSENSUS.out.consensus
+        ch_gisaid_consensus = ch_consensus_final
             .map { meta, consensus -> [ meta.vdir, consensus ] }
             .groupTuple()
         ch_gisaid_in = METADATA_XLSX.out.xlsx.join( ch_gisaid_consensus )
@@ -695,6 +755,15 @@ workflow {
             file("$projectDir/assets/python_wheels", checkIfExists: true)
         )
     }
+    // Reproducibility table shared by every per-virus dashboard.
+    def blast_date_candidate = file("${params.blast_db_dir}/refseq_build_date.txt", checkIfExists: false)
+    def provenance_blast_date = blast_date_candidate.exists() ? blast_date_candidate : ch_no_file
+    PROVENANCE_SUMMARY (
+        files("$projectDir/modules/local/*.nf", checkIfExists: true),
+        provenance_blast_date,
+        file("$projectDir/bin/provenance_summary.py", checkIfExists: true)
+    )
+
     //
     // Self-contained HTML surveillance dashboard (PASS/WARN/FAIL per sample,
     // per-segment breakdown, variant counts, inline charts)
@@ -705,7 +774,7 @@ workflow {
         // keyed by vdir. Everything is joined on vdir with remainder:true so a virus
         // missing an optional input still emits a row; nulls collapse to [] (which
         // stageAs '<dir>/*' treats as "nothing staged", exactly like the old ifEmpty).
-        ch_dash_qc    = CONSENSUS_QC.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_dash_qc    = ch_qc_final.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_var   = ANNOTATE_AA.out.tsv.map  { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_mixed = ch_mixed.map             { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_reads = ch_read_stats.map        { meta, f -> [ meta.vdir, f ] }.groupTuple()
@@ -713,28 +782,50 @@ workflow {
         ch_dash_amplicon = AMPLICON_COVERAGE.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_coding = CODING_QC.out.tsv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
         ch_dash_vcf = VARIANTS_VCF.out.vcf.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_dash_isnv = ch_isnv.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_dash_snpeff = ch_snpeff.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
+        ch_dash_iterative = ch_iterative.map { meta, f -> [ meta.vdir, f ] }.groupTuple()
 
-        ch_dash_in = ch_dash_qc
-            .join( ch_dash_var,   remainder: true )
-            .join( ch_dash_mixed, remainder: true )
-            .join( ch_taxonomy,   remainder: true )
-            .join( ch_krona,      remainder: true )
-            .join( ch_nextclade,  remainder: true )
-            .join( ch_blast,      remainder: true )
-            .join( ch_dash_reads, remainder: true )
-            .join( ch_dash_validation, remainder: true )
-            .join( ch_validation_krona, remainder: true )
-            .join( ch_dash_amplicon, remainder: true )
-            .join( ch_dash_coding, remainder: true )
-            .join( ch_dash_vcf, remainder: true )
-            .map { row ->
-                // row = [ vdir, qc[], var[], mixed[], taxonomy, krona, nextclade,
-                //         blast, reads[], validation[], validation_krona,
-                //         amplicon[], coding_qc[], vcf[] ]
-                def vdir = row[0]
-                def vals = row[1..-1].collect { v -> v == null ? [] : v }
-                [ vdir ] + vals
+        // Tag every optional source before grouping. Repeated join(remainder:true)
+        // can emit shorter tuples when a virus first appears in a later channel.
+        // This representation always expands every virus to the same 17-field row.
+        ch_dash_tagged = ch_dash_qc.map { vdir, value -> [ vdir, 'qc', value ] }
+            .mix( ch_dash_var.map { vdir, value -> [ vdir, 'variants', value ] } )
+            .mix( ch_dash_mixed.map { vdir, value -> [ vdir, 'mixed', value ] } )
+            .mix( ch_taxonomy.map { vdir, value -> [ vdir, 'taxonomy', value ] } )
+            .mix( ch_krona.map { vdir, value -> [ vdir, 'krona', value ] } )
+            .mix( ch_nextclade.map { vdir, value -> [ vdir, 'nextclade', value ] } )
+            .mix( ch_blast.map { vdir, value -> [ vdir, 'blast', value ] } )
+            .mix( ch_dash_reads.map { vdir, value -> [ vdir, 'reads', value ] } )
+            .mix( ch_dash_validation.map { vdir, value -> [ vdir, 'validation', value ] } )
+            .mix( ch_validation_krona.map { vdir, value -> [ vdir, 'validation_krona', value ] } )
+            .mix( ch_dash_amplicon.map { vdir, value -> [ vdir, 'amplicon', value ] } )
+            .mix( ch_dash_coding.map { vdir, value -> [ vdir, 'coding', value ] } )
+            .mix( ch_dash_vcf.map { vdir, value -> [ vdir, 'vcf', value ] } )
+            .mix( ch_dash_isnv.map { vdir, value -> [ vdir, 'isnv', value ] } )
+            .mix( ch_dash_snpeff.map { vdir, value -> [ vdir, 'snpeff', value ] } )
+            .mix( ch_dash_iterative.map { vdir, value -> [ vdir, 'iterative', value ] } )
+
+        ch_dash_in = ch_dash_tagged
+            .groupTuple(by: 0)
+            .map { vdir, tags, values ->
+                def slots = [
+                    qc: [], variants: [], mixed: [], taxonomy: [], krona: [],
+                    nextclade: [], blast: [], reads: [], validation: [],
+                    validation_krona: [], amplicon: [], coding: [], vcf: [],
+                    isnv: [], snpeff: [], iterative: []
+                ]
+                tags.eachWithIndex { tag, index ->
+                    slots[tag] = values[index] == null ? [] : values[index]
+                }
+                [
+                    vdir, slots.qc, slots.variants, slots.mixed, slots.taxonomy,
+                    slots.krona, slots.nextclade, slots.blast, slots.reads,
+                    slots.validation, slots.validation_krona, slots.amplicon,
+                    slots.coding, slots.vcf, slots.isnv, slots.snpeff, slots.iterative
+                ]
             }
+            .combine( PROVENANCE_SUMMARY.out.tsv )
         DASHBOARD ( ch_dash_in )
     }
 }

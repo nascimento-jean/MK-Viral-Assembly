@@ -183,7 +183,8 @@ def main():
         return p if args.relative else os.path.abspath(p)
 
     overrides = {"reference": args.reference, "gff": args.gff,
-                 "bed_file": args.bed_file, "nextclade_dataset": args.nextclade_dataset}
+                 "bed_file": args.bed_file,
+                 "nextclade_dataset": args.nextclade_dataset}
 
     # build list of (virus, folder) jobs
     jobs = []

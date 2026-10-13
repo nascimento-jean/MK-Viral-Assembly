@@ -13,7 +13,8 @@ RUNTIME_DIR="${XDG_RUNTIME_DIR:-$STATE_DIR}"
 LOG_FILE="$STATE_DIR/launcher.log"
 SERVICE_LOG="$STATE_DIR/webtool-service.log"
 PID_FILE="$RUNTIME_DIR/mkva-webtool.pid"
-RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.5}"
+RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.6}"
+RELEASE_REVISION="${MKVA_RELEASE_REVISION:-feature-parity-2026-10-13}"
 
 mkdir -p "$STATE_DIR" "$RUNTIME_DIR"
 
@@ -120,18 +121,30 @@ if [[ "${MKVA_LAUNCHER_LOCK_TEST:-}" == "1" ]]; then
 fi
 
 needs_setup=false
-for required in "$SOURCE_DIR/main.nf" "$SOURCE_DIR/webtool/start-local.sh" "$NEXTFLOW_ENV/bin/nextflow" "$NEXTFLOW_ENV/bin/java" "$WEBTOOL_ENV/bin/node" "$WEBTOOL_ENV/bin/npm"; do
+for required in "$SOURCE_DIR/main.nf" "$SOURCE_DIR/webtool/start-local.sh" "$SOURCE_DIR/tools/nf-test" "$SOURCE_DIR/tools/nf-test.version" "$NEXTFLOW_ENV/bin/nextflow" "$NEXTFLOW_ENV/bin/java" "$WEBTOOL_ENV/bin/node" "$WEBTOOL_ENV/bin/npm"; do
   [[ -e "$required" ]] || needs_setup=true
 done
 [[ -d "$SOURCE_DIR/webtool/dist" ]] || needs_setup=true
+installed_release="$(sed -n 's/^release=//p' "$SOURCE_DIR/.mkva-managed-install" 2>/dev/null | head -n 1 || true)"
+installed_revision="$(sed -n 's/^revision=//p' "$SOURCE_DIR/.mkva-managed-install" 2>/dev/null | head -n 1 || true)"
+[[ "$installed_release" == "$RELEASE_REF" && "$installed_revision" == "$RELEASE_REVISION" ]] || needs_setup=true
+
+if [[ "${MKVA_LAUNCHER_UPDATE_TEST:-}" == "1" ]]; then
+  printf 'MKVA_NEEDS_SETUP=%s\n' "$needs_setup"
+  exit 0
+fi
 
 if [[ "$needs_setup" == true ]]; then
+  if http_ok "http://127.0.0.1:3000" || http_ok "http://127.0.0.1:8787/api/health"; then
+    show_error "Há uma atualização pendente. Aguarde as análises terminarem, encerre o serviço com mk-viral-assembly --stop e abra o aplicativo novamente."
+    exit 1
+  fi
   if gui_available; then
-    zenity --question --title="MK-Viral-Assembly — primeira instalação" --width=560 \
+    zenity --question --title="MK-Viral-Assembly — instalação ou atualização" --width=560 \
       --ok-label="Continuar" --cancel-label="Sair" \
       --text="A primeira inicialização baixará e preparará ambientes isolados para Nextflow e a WebTool.\n\nMantenha a conexão com a internet e reserve pelo menos 30 GB livres para o programa, análises e bancos opcionais." || exit 0
     set +e
-    env MKVA_RELEASE_REF="$RELEASE_REF" MKVA_APP_DATA_DIR="$APP_DATA_DIR" "$BOOTSTRAP" 2>&1 \
+    env MKVA_RELEASE_REF="$RELEASE_REF" MKVA_RELEASE_REVISION="$RELEASE_REVISION" MKVA_APP_DATA_DIR="$APP_DATA_DIR" "$BOOTSTRAP" 2>&1 \
       | while IFS= read -r line; do
           printf '[%s] %s\n' "$(date '+%F %T')" "$line" >> "$LOG_FILE"
           case "$line" in
@@ -146,7 +159,7 @@ if [[ "$needs_setup" == true ]]; then
     bootstrap_status="${codes[0]}"
   else
     set +e
-    env MKVA_RELEASE_REF="$RELEASE_REF" MKVA_APP_DATA_DIR="$APP_DATA_DIR" "$BOOTSTRAP" 2>&1 | tee -a "$LOG_FILE"
+    env MKVA_RELEASE_REF="$RELEASE_REF" MKVA_RELEASE_REVISION="$RELEASE_REVISION" MKVA_APP_DATA_DIR="$APP_DATA_DIR" "$BOOTSTRAP" 2>&1 | tee -a "$LOG_FILE"
     bootstrap_status="${PIPESTATUS[0]}"
     set -e
   fi

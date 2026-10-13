@@ -50,6 +50,7 @@ jobs:
         run: |
           python3 -m compileall -q bin webtool/local_api.py
           python3 -m unittest tests/test_gisaid_submission.py tests/test_metadata_typing.py -v
+          python3 -m unittest discover -s tests -p 'test_*.py'
 
   windows-installer:
     needs: validate

@@ -22,6 +22,7 @@ test("renders the MK-Viral-Assembly analysis workspace", async () => {
   assert.match(html, /<html lang="pt-BR">/i);
   assert.match(html, /<title>MK-Viral-Assembly Webtool<\/title>/i);
   assert.match(html, /Nova análise/);
+  assert.match(html, /Autoteste/);
   assert.match(html, /Primer BED/);
   assert.match(html, /Anotação GFF3/);
   assert.match(html, /Dataset Nextclade/);
@@ -45,6 +46,8 @@ test("keeps execution local and passes validated arguments without a shell", asy
   assert.match(page, /http:\/\/localhost:8787\/api\/health/);
   assert.ok(page.includes("http://localhost:8787/api/jobs"));
   assert.ok(page.includes("http://localhost:8787/api/samplesheet"));
+  assert.ok(page.includes("http://localhost:8787/api/self-test"));
+  assert.ok(page.includes("Teste completo com nf-test"));
   assert.ok(page.includes("http://localhost:8787/api/metadata-template?format=xlsx"));
   assert.ok(page.includes("Preencha uma linha por amostra"));
   assert.ok(page.includes("Criar samplesheet automaticamente"));
@@ -75,6 +78,8 @@ test("keeps execution local and passes validated arguments without a shell", asy
   assert.ok(!page.includes("<strong>327</strong>"));
   assert.ok(!page.includes("<strong>95 GB</strong>"));
   assert.ok(api.includes("ARTIFACT_CATEGORIES"));
+  assert.ok(api.includes("def run_self_test"));
+  assert.ok(api.includes("nf-test com dados sintéticos"));
   assert.ok(api.includes("def generate_samplesheet"));
   assert.ok(api.includes("SAMPLESHEET_SCRIPT"));
   assert.ok(api.includes("VIRUS_CATALOG"));

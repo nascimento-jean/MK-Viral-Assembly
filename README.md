@@ -47,14 +47,17 @@ The graphical WebTool lets Windows and Ubuntu users configure and run MK-Viral-A
 
 ### Ubuntu 22.04/24.04
 
-1. [Download `MK-Viral-Assembly-WebTool_1.2.5_amd64.deb` directly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.5/MK-Viral-Assembly-WebTool_1.2.5_amd64.deb).
-2. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.5_amd64.deb`.
+1. [Download `MK-Viral-Assembly-WebTool_1.2.6_amd64.deb` directly](https://github.com/nascimento-jean/MK-Viral-Assembly/releases/download/v1.2.6/MK-Viral-Assembly-WebTool_1.2.6_amd64.deb).
+2. Open it with App Center, or run `sudo apt install ./MK-Viral-Assembly-WebTool_1.2.6_amd64.deb`.
 3. Start **MK-Viral-Assembly** from the applications menu and follow the first-launch preparation. On Ubuntu, the WebTool opens in its own application window without browser controls.
 
 Both installers create isolated environments and keep FASTQs and results local. Read the [complete installation guide](docs/WEBTOOL_INSTALLATION.md), the [Portuguese installation guide](docs/INSTALACAO_WEBTOOL_PT_BR.md), or the [illustrated Portuguese tutorial](Tutorial_MK-Viral-Assembly_PT-BR.pdf) for requirements, analysis setup, metadata, dashboard interpretation and troubleshooting.
 
-## Version 1.2.5 highlights
+## Version 1.2.6 highlights
 
+- Windows and Ubuntu installers use the same tagged pipeline and WebTool;
+- Ubuntu detects outdated managed source after a package upgrade, preserving
+  analysis history and local databases;
 - separate controls for minimum trimmed-read length, consensus allele frequency
   and reported-variant frequency;
 - single-end Illumina rows and an explicit `sample_type` column in mixed-virus

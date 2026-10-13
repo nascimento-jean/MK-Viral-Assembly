@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import socket
 import sys
 import time
 from pathlib import Path
@@ -43,6 +44,14 @@ def wait_port(port: int, expected: bool) -> None:
     raise AssertionError(f"port {port} expected ready={expected}")
 
 def main() -> int:
+    # Never run the destructive listener test against an active desktop session.
+    for port in (3000, 8787):
+        with socket.socket() as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                print(f"STOP_LOCAL_REGRESSION_SKIPPED: port {port} is already in use")
+                return 0
     LISTENER.write_text(LISTENER_SOURCE, encoding="utf-8")
     processes = [
         subprocess.Popen([sys.executable, str(LISTENER), str(port)])

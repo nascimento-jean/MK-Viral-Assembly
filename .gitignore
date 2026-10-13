@@ -23,3 +23,8 @@ windows-launcher/output/
 
 # Ubuntu package build output
 linux-launcher/output/
+
+# Python and Nextflow test caches
+__pycache__/
+*.py[cod]
+.nf-test/

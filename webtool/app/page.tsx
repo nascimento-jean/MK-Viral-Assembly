@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type View = "overview" | "new" | "runs" | "samples" | "results";
+type View = "overview" | "new" | "runs" | "samples" | "results" | "diagnostics";
 type InputMode = "single" | "mixed";
 type PickerTarget = "fastq_dir" | "reference" | "primer_bed" | "gff" | "samplesheet" | "samplesheet_parent" | "samplesheet_output" | "metadata" | "outdir" | "kraken_db";
 type RunFilter = "all" | "running" | "completed" | "error";
@@ -18,6 +18,14 @@ type Artifact = {
 type SamplesheetResult = {
   path: string; samples: number; viruses: Record<string, number>; warnings: string[]; catalog: string;
 };
+type DiagnosticCheck = {
+  label: string; status: "PASS" | "WARN" | "FAIL"; message: string; duration_seconds: number;
+};
+type SelfTestResult = {
+  available?: boolean; level: "quick" | "complete"; overall: "PASS" | "WARN" | "FAIL";
+  started_at: string; finished_at: string; duration_seconds: number;
+  checks: DiagnosticCheck[]; log: string;
+};
 type Run = {
   id: string; name: string; virus: string; samples: number; progress: number;
   status: string; started: string; createdAt: string; currentProcess: string; stages: RunStage[];
@@ -26,7 +34,7 @@ type Run = {
 type ApiJob = {
   id: string; name: string; virus: string; status: string; created_at: string;
   started_at?: string | null; queue_position?: number | null;
-  nextclade?: boolean; blast?: boolean; kraken?: boolean; deplete?: boolean;
+  nextclade?: boolean; blast?: boolean; kraken?: boolean; deplete?: boolean; snpeff?: boolean;
   metadata?: string; outdir?: string; nextclade_dataset?: string;
 };
 
@@ -45,7 +53,8 @@ const stageDefinitions = [
   { label: "Qualidade", processes: ["FASTQC_RAW", "FASTP", "FASTQC_TRIM"] },
   { label: "Taxonomia", processes: ["KRAKEN2", "TAXONOMY_SUMMARY", "KREPORT2KRONA", "KRONA", "KRONA_VALIDATION"], enabled: (job: ApiJob) => Boolean(job.kraken) },
   { label: "Alinhamento", processes: ["HOST_DEPLETE", "ALIGN:BWA_MEM", "IVAR_TRIM", "SAMTOOLS_STATS"], optional: (name: string, job: ApiJob) => name === "HOST_DEPLETE" && !job.deplete },
-  { label: "Consenso", processes: ["IVAR_VARIANTS", "ANNOTATE_AA", "MIXED_SITES", "IVAR_CONSENSUS", "CONSENSUS_QC", "READ_STATS"] },
+  { label: "Consenso", processes: ["IVAR_VARIANTS", "ANNOTATE_AA", "MIXED_SITES", "IVAR_CONSENSUS", "CONSENSUS_QC", "READ_STATS", "ISNV_CALL", "ISNV_FILTER"] },
+  { label: "Anotação", processes: ["SNPEFF_ANNOTATE"], enabled: (job: ApiJob) => Boolean(job.snpeff) },
   { label: "Classificação", processes: ["NEXTCLADE_DATASET_GET", "NEXTCLADE_RUN", "NEXTCLADE_SUMMARY", "BLAST_DB_PREP", "BLASTN_ID", "BLAST_SUMMARY"], optional: (name: string, job: ApiJob) => name.startsWith("NEXTCLADE") ? !job.nextclade : name.startsWith("BLAST") && !job.blast },
   { label: "Relatórios", processes: ["CAT_CONSENSUS", "MULTIQC", "METADATA_XLSX", "GISAID_SUBMISSION", "DASHBOARD"], optional: (name: string, job: ApiJob) => ["METADATA_XLSX", "GISAID_SUBMISSION"].includes(name) && !job.metadata },
 ] as const;
@@ -148,7 +157,7 @@ export default function Home() {
   const [variantMinFreq, setVariantMinFreq] = useState(0.25), [trimMinLen, setTrimMinLen] = useState(30);
   const [minQual, setMinQual] = useState(20), [mapQual, setMapQual] = useState(20);
   const [cpus, setCpus] = useState(8), [memory, setMemory] = useState(16);
-  const [nextclade, setNextclade] = useState(true), [blast, setBlast] = useState(false);
+  const [nextclade, setNextclade] = useState(true), [blast, setBlast] = useState(false), [snpeff, setSnpeff] = useState(false);
   const [nextcladeDataset, setNextcladeDataset] = useState(nextcladeDatasetDefaults.Dengue);
   const [kraken, setKraken] = useState(false), [deplete, setDeplete] = useState(false);
   const [advanced, setAdvanced] = useState(false), [notice, setNotice] = useState("");
@@ -159,6 +168,8 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [creatingSamplesheet, setCreatingSamplesheet] = useState(false);
   const [pickingPath, setPickingPath] = useState<PickerTarget | "">("");
+  const [selfTest, setSelfTest] = useState<SelfTestResult | null>(null);
+  const [selfTestRunning, setSelfTestRunning] = useState<"" | "quick" | "complete">("");
 
   const command = useMemo(() => [
     "nextflow run main.nf", `-profile ${profile}`,
@@ -172,9 +183,9 @@ export default function Home() {
     `--trim_min_len ${trimMinLen}`, `--min_qual ${minQual}`, `--min_map_qual ${mapQual}`,
     `--max_cpus ${cpus}`, `--max_memory ${memory}.GB`, `--nextclade ${nextclade}`,
     inputMode === "single" && nextclade && nextcladeDataset ? `--nextclade_dataset ${nextcladeDataset}` : "",
-    `--blast_id ${blast}`, metadata ? `--metadata ${metadata}` : "", kraken && krakenDb ? `--kraken2_db ${krakenDb}` : "",
+    `--blast_id ${blast}`, `--snpeff ${snpeff}`, metadata ? `--metadata ${metadata}` : "", kraken && krakenDb ? `--kraken2_db ${krakenDb}` : "",
     deplete && kraken ? "--deplete_host true" : "", "-resume"
-  ].filter(Boolean).join(" \\\n  "), [profile, inputMode, rawDataDir, reference, primerBed, gff, samplesheet, virus, outdir, runName, minCov, consensusMinFreq, variantMinFreq, trimMinLen, minQual, mapQual, cpus, memory, nextclade, nextcladeDataset, blast, metadata, kraken, krakenDb, deplete]);
+  ].filter(Boolean).join(" \\\n  "), [profile, inputMode, rawDataDir, reference, primerBed, gff, samplesheet, virus, outdir, runName, minCov, consensusMinFreq, variantMinFreq, trimMinLen, minQual, mapQual, cpus, memory, nextclade, nextcladeDataset, blast, snpeff, metadata, kraken, krakenDb, deplete]);
 
   useEffect(() => {
     let active = true;
@@ -219,6 +230,45 @@ export default function Home() {
     const timer = window.setInterval(syncLocalService, 3000);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
+
+  useEffect(() => {
+    if (view !== "diagnostics" || !backendOnline || selfTest) return;
+    let active = true;
+    fetch("http://localhost:8787/api/self-test", { cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) return null;
+        return await response.json() as SelfTestResult;
+      })
+      .then(result => {
+        if (active && result?.available !== false) setSelfTest(result);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [view, backendOnline, selfTest]);
+
+  async function runSelfTest(level: "quick" | "complete") {
+    setSelfTestRunning(level);
+    setNotice("");
+    try {
+      const response = await fetch("http://localhost:8787/api/self-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level }),
+      });
+      const result = await response.json() as SelfTestResult & { error?: string };
+      if (!response.ok) throw new Error(result.error || "Não foi possível executar o autoteste");
+      setSelfTest(result);
+      setNotice(result.overall === "PASS"
+        ? "Autoteste concluído sem falhas."
+        : result.overall === "WARN"
+          ? "Autoteste concluído com avisos para revisar."
+          : "Autoteste encontrou falhas. Consulte os itens e o log abaixo.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Não foi possível executar o autoteste");
+    } finally {
+      setSelfTestRunning("");
+    }
+  }
 
   async function selectLocalPath(picker: PickerTarget, current: string, setValue: (value: string) => void) {
     setPickingPath(picker);
@@ -273,11 +323,12 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ run_name: runName, virus, profile, input_mode: inputMode,
-          raw_data_dir: rawDataDir, reference, primer_bed: primerBed, gff, samplesheet, metadata, outdir,
+          raw_data_dir: rawDataDir, reference,
+          primer_bed: primerBed, gff, samplesheet, metadata, outdir,
           kraken_db: krakenDb, min_cov: minCov, consensus_min_freq: consensusMinFreq,
           variant_min_freq: variantMinFreq, trim_min_len: trimMinLen, min_qual: minQual,
           min_map_qual: mapQual, max_cpus: cpus, max_memory: memory,
-          nextclade, nextclade_dataset: inputMode === "single" ? nextcladeDataset : "", blast, kraken, deplete }),
+          nextclade, nextclade_dataset: inputMode === "single" ? nextcladeDataset : "", blast, snpeff, kraken, deplete }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível iniciar a análise");
@@ -315,11 +366,13 @@ export default function Home() {
   const nav: { id: View; label: string; icon: string }[] = [
     { id: "overview", label: "Visão geral", icon: "⌂" }, { id: "new", label: "Nova análise", icon: "+" },
     { id: "runs", label: "Execuções", icon: "↻" }, { id: "samples", label: "Amostras", icon: "▦" }, { id: "results", label: "Resultados", icon: "↗" },
+    { id: "diagnostics", label: "Autoteste", icon: "✓" },
   ];
   const titles: Record<View, [string, string]> = {
     overview: ["Visão geral", "Acompanhe a operação do laboratório em um só lugar."], new: ["Nova análise", "Configure dados, métodos e recursos antes de executar."],
     runs: ["Execuções", "Monitore o progresso e retome análises interrompidas."], samples: ["Amostras", "Explore as amostras processadas e seus indicadores."],
     results: ["Resultados", "Acesse dashboards, consensos e relatórios finais."],
+    diagnostics: ["Autoteste da instalação", "Verifique o ambiente e as análises com dados sintéticos."],
   };
 
   return <div className="app-shell">
@@ -327,7 +380,7 @@ export default function Home() {
       <div className="brand"><div className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></div><div><strong>MK Viral</strong><span>Assembly</span></div></div>
       <div className="workspace-label">PLATAFORMA LOCAL</div>
       <nav aria-label="Navegação principal">{nav.map(item => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}><span className="nav-icon">{item.icon}</span>{item.label}{item.id === "runs" && runs.filter(run => ["Executando", "Na fila"].includes(run.status)).length > 0 && <em>{runs.filter(run => ["Executando", "Na fila"].includes(run.status)).length}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><button><span className="nav-icon">?</span>Documentação</button><button><span className="nav-icon">⚙</span>Configurações</button><div className={`local-card ${backendOnline ? "" : "offline"}`}><span className="pulse-dot"/><div><strong>Ambiente local</strong><small>{backendOnline ? "Serviço local · operacional" : "API local · desconectada"}</small></div></div><div className="version">MK-Viral-Assembly <span>v1.2.5</span></div></div>
+      <div className="sidebar-bottom"><button><span className="nav-icon">?</span>Documentação</button><button><span className="nav-icon">⚙</span>Configurações</button><div className={`local-card ${backendOnline ? "" : "offline"}`}><span className="pulse-dot"/><div><strong>Ambiente local</strong><small>{backendOnline ? "Serviço local · operacional" : "API local · desconectada"}</small></div></div><div className="version">MK-Viral-Assembly <span>v1.2.6</span></div></div>
     </aside>
     <main>
       <header className="topbar"><div><p>MK-VIRAL-ASSEMBLY</p><h1>{titles[view][0]}</h1><span>{titles[view][1]}</span></div><div className="machine"><b>MK</b><span><strong>Usuário local</strong><small>Este computador</small></span></div></header>
@@ -379,7 +432,7 @@ export default function Home() {
               <div className="form-grid compact-grid"><label className="field"><span>Perfil de execução</span><select value={profile} onChange={e => setProfile(e.target.value)}><option value="conda">Conda — recomendado no Windows</option><option value="singularity">Singularity / Apptainer</option><option value="docker">Docker</option></select></label><div className={`environment-ok ${backendOnline ? "" : "unavailable"}`}><span>{backendOnline ? "✓" : "!"}</span><div><strong>{backendOnline ? "Ambiente disponível" : "Serviço local desligado"}</strong><small>{backendOnline ? "WebTool e Nextflow detectados" : "Abra o aplicativo MK-Viral-Assembly"}</small></div></div></div>
             </article>
             <article className="panel form-panel"><PanelHeading number="03" title="Etapas opcionais" text="Ative somente as análises necessárias para este lote."/>
-              <div className="toggle-grid"><Toggle checked={nextclade} onChange={() => setNextclade(!nextclade)} label="Nextclade" description="Linhagem, genótipo e controle de qualidade"/><Toggle checked={blast} onChange={() => setBlast(!blast)} label="Identificação por BLAST" description="Confirmação contra RefSeq Viral local"/><Toggle checked={kraken} onChange={() => setKraken(!kraken)} label="Triagem Kraken2" description="Composição taxonômica das leituras"/><Toggle checked={deplete} onChange={() => setDeplete(!deplete)} label="Depleção do hospedeiro" description="Remove leituras humanas antes do alinhamento"/></div>
+              <div className="toggle-grid"><Toggle checked={nextclade} onChange={() => setNextclade(!nextclade)} label="Nextclade" description="Linhagem, genótipo e controle de qualidade"/><Toggle checked={blast} onChange={() => setBlast(!blast)} label="Identificação por BLAST" description="Confirmação contra RefSeq Viral local"/><Toggle checked={snpeff} onChange={() => setSnpeff(!snpeff)} label="SnpEff / SnpSift" description="Anotação funcional opcional das variantes em aba própria"/><Toggle checked={kraken} onChange={() => setKraken(!kraken)} label="Triagem Kraken2" description="Composição taxonômica das leituras"/><Toggle checked={deplete} onChange={() => setDeplete(!deplete)} label="Depleção do hospedeiro" description="Remove leituras humanas antes do alinhamento"/></div>
               {inputMode === "single" && nextclade && <label className="field database-field"><span>Dataset Nextclade <em>obrigatório no modo Single</em></span><input list="nextclade-dataset-aliases" value={nextcladeDataset} placeholder="Ex.: denv4 ou nextstrain/dengue/all" onChange={event => setNextcladeDataset(event.target.value)} required/><datalist id="nextclade-dataset-aliases">{nextcladeDatasetAliases.map(alias => <option key={alias} value={alias}/>)}</datalist><small>Informe um alias do pipeline ou o caminho completo no catálogo Nextclade. Para VSR, escolha rsv-a ou rsv-b.</small></label>}
               {kraken && <PathField label="Banco Kraken2" value={krakenDb} setValue={setKrakenDb} picker="kraken_db" picking={pickingPath} onPick={selectLocalPath} placeholder="Selecione o diretório do banco Kraken2" className="database-field"/>}
             </article>
@@ -387,9 +440,10 @@ export default function Home() {
               {advanced && <div className="advanced-content"><div className="parameter-grid"><NumberField label="Cobertura mínima" value={minCov} setValue={setMinCov} help="Profundidade mínima para chamar uma base no consenso."/><NumberField label="Frequência do consenso" value={consensusMinFreq} setValue={setConsensusMinFreq} step="0.05" help="Frequência mínima do alelo para entrar na sequência consenso."/><NumberField label="Frequência das variantes" value={variantMinFreq} setValue={setVariantMinFreq} step="0.05" help="Frequência mínima para registrar uma variante no TSV e no VCF."/><NumberField label="Comprimento mínimo após o corte" value={trimMinLen} setValue={setTrimMinLen} help="Tamanho mínimo, em bases, da leitura mantida após o corte de primers."/><NumberField label="Qualidade da base" value={minQual} setValue={setMinQual}/><NumberField label="Qualidade de mapeamento" value={mapQual} setValue={setMapQual}/></div><div className="resource-grid"><Range label="CPUs" value={cpus} setValue={setCpus} min={2} max={16} suffix=""/><Range label="Memória" value={memory} setValue={setMemory} min={8} max={60} suffix=" GB"/></div></div>}
             </article>
           </div>
-          <aside className="run-summary"><div className="summary-head"><span>RESUMO DA EXECUÇÃO</span><b>Pronta</b></div><div className="summary-virus"><VirusBadge virus={inputMode === "single" ? virus : "Mixed viruses"}/><div><strong>{inputMode === "single" ? virus : "Mixed viruses"}</strong><small>{profile} · Illumina</small></div></div><dl><Summary label="Execução" value={runName || "Sem nome"}/><Summary label="Entrada" value={inputMode === "single" ? "Single · pasta FASTQ" : "Mixed · samplesheet CSV"}/>{inputMode === "single" && primerBed && <Summary label="Primers" value="BED ativado"/>}{inputMode === "single" && gff && <Summary label="Anotação" value="GFF3 ativado"/>}<Summary label="Recursos" value={`${cpus} CPUs · ${memory} GB`}/><Summary label="Classificação" value={nextclade ? (inputMode === "single" ? "Nextclade · " + (nextcladeDataset || "dataset pendente") : "Nextclade · por samplesheet") : "Desativada"}/><Summary label="Identificação" value={blast ? "BLAST RefSeq" : "Desativada"}/><Summary label="Taxonomia" value={kraken ? "Kraken2" : "Desativada"}/></dl><div className="command-box"><div><span>COMANDO NEXTFLOW</span><button type="button" onClick={() => navigator.clipboard?.writeText(command)}>Copiar</button></div><pre>{command}</pre></div><button className="launch" onClick={startAnalysis} disabled={submitting || !backendOnline || (inputMode === "single" && nextclade && !nextcladeDataset.trim())}><span>▶</span>{submitting ? "Iniciando..." : !backendOnline ? "Serviço local indisponível" : inputMode === "single" && nextclade && !nextcladeDataset.trim() ? "Informe o dataset Nextclade" : "Iniciar análise"}</button><p className="launch-note">A execução continuará enquanto o computador e o aplicativo permanecerem ligados.</p></aside>
+          <aside className="run-summary"><div className="summary-head"><span>RESUMO DA EXECUÇÃO</span><b>Pronta</b></div><div className="summary-virus"><VirusBadge virus={inputMode === "single" ? virus : "Mixed viruses"}/><div><strong>{inputMode === "single" ? virus : "Mixed viruses"}</strong><small>{profile} · Illumina</small></div></div><dl><Summary label="Execução" value={runName || "Sem nome"}/><Summary label="Entrada" value={inputMode === "single" ? "Single · pasta FASTQ" : "Mixed · samplesheet CSV"}/><Summary label="Referência" value="Manual"/>{inputMode === "single" && primerBed && <Summary label="Primers" value="BED ativado"/>}{inputMode === "single" && gff && <Summary label="Anotação" value="GFF3 ativado"/>}<Summary label="Recursos" value={`${cpus} CPUs · ${memory} GB`}/><Summary label="Classificação" value={nextclade ? (inputMode === "single" ? "Nextclade · " + (nextcladeDataset || "dataset pendente") : "Nextclade · por samplesheet") : "Desativada"}/><Summary label="Identificação" value={blast ? "BLAST RefSeq" : "Desativada"}/><Summary label="Anotação funcional" value={snpeff ? "SnpEff / SnpSift" : "Desativada"}/><Summary label="Taxonomia" value={kraken ? "Kraken2" : "Desativada"}/></dl><div className="command-box"><div><span>COMANDO NEXTFLOW</span><button type="button" onClick={() => navigator.clipboard?.writeText(command)}>Copiar</button></div><pre>{command}</pre></div><button className="launch" onClick={startAnalysis} disabled={submitting || !backendOnline || (inputMode === "single" && nextclade && !nextcladeDataset.trim())}><span>▶</span>{submitting ? "Iniciando..." : !backendOnline ? "Serviço local indisponível" : inputMode === "single" && nextclade && !nextcladeDataset.trim() ? "Informe o dataset Nextclade" : "Iniciar análise"}</button><p className="launch-note">A execução continuará enquanto o computador e o aplicativo permanecerem ligados.</p></aside>
         </section>}
         {view === "runs" && <RunsPage runs={runs} setView={setView} selectedRunId={selectedRunId} setSelectedRunId={setSelectedRunId} lastUpdated={lastUpdated} onCancel={cancelAnalysis} onDelete={deleteAnalysis}/>} {view === "samples" && <SamplesPage runs={runs} lastUpdated={lastUpdated}/>} {view === "results" && <ResultsPage runs={runs} selectedRunId={selectedRunId} setSelectedRunId={setSelectedRunId}/>}
+        {view === "diagnostics" && <DiagnosticsPage result={selfTest} running={selfTestRunning} online={backendOnline} onRun={runSelfTest}/>}
       </div>
     </main>
   </div>;
@@ -410,6 +464,48 @@ function PanelHeading({ number, title, text, aside }: { number: string; title: s
 function NumberField({ label, value, setValue, step, help }: { label: string; value: number; setValue: (n:number)=>void; step?: string; help?: string }) { return <label className="field"><span>{label}</span><input type="number" step={step} value={value} onChange={e => setValue(Number(e.target.value))}/>{help && <small>{help}</small>}</label>; }
 function Range({ label, value, setValue, min, max, suffix }: { label:string; value:number; setValue:(n:number)=>void; min:number; max:number; suffix:string }) { return <label><span><strong>{label}</strong><em>{value}{suffix}</em></span><input type="range" min={min} max={max} value={value} onChange={e => setValue(Number(e.target.value))}/></label>; }
 function Summary({ label, value }: { label:string; value:string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }
+
+function DiagnosticsPage({ result, running, online, onRun }: {
+  result: SelfTestResult | null; running: "" | "quick" | "complete"; online: boolean;
+  onRun: (level: "quick" | "complete") => Promise<void>;
+}) {
+  const statusText = result?.overall === "PASS" ? "Aprovado"
+    : result?.overall === "WARN" ? "Com avisos" : result?.overall === "FAIL" ? "Falhou" : "Ainda não executado";
+  return <section className="diagnostics-page">
+    <article className="panel diagnostics-intro">
+      <div>
+        <span className="eyebrow">DIAGNÓSTICO LOCAL</span>
+        <h2>Verifique a instalação antes de analisar amostras reais</h2>
+        <p>Os testes usam somente arquivos sintéticos incluídos na ferramenta. Nenhum dado do usuário é lido, alterado ou enviado.</p>
+      </div>
+      <div className="diagnostics-actions">
+        <button type="button" className="secondary-test" disabled={!online || Boolean(running)} onClick={() => onRun("quick")}>
+          {running === "quick" ? "Testando..." : "Teste rápido"}
+        </button>
+        <button type="button" className="primary-test" disabled={!online || Boolean(running)} onClick={() => onRun("complete")}>
+          {running === "complete" ? "Executando nf-test..." : "Teste completo com nf-test"}
+        </button>
+      </div>
+      <small>O teste completo pode levar alguns minutos. Ele valida o grafo do pipeline e executa os cenários sintéticos do nf-test.</small>
+    </article>
+    <article className="panel diagnostics-results">
+      <div className="diagnostics-summary">
+        <div><span>Resultado geral</span><strong className={`diag-${result?.overall?.toLowerCase() ?? "idle"}`}>{statusText}</strong></div>
+        <div><span>Modo</span><strong>{result?.level === "complete" ? "Completo" : result?.level === "quick" ? "Rápido" : "—"}</strong></div>
+        <div><span>Duração</span><strong>{result ? `${result.duration_seconds.toFixed(2)} s` : "—"}</strong></div>
+        <div><span>Última execução</span><strong>{result ? new Date(result.finished_at).toLocaleString("pt-BR") : "—"}</strong></div>
+      </div>
+      {result ? <div className="diagnostics-checks">{result.checks.map((check, index) =>
+        <div className="diagnostic-check" key={`${check.label}-${index}`}>
+          <span className={`diagnostic-badge badge-${check.status.toLowerCase()}`}>{check.status}</span>
+          <div><strong>{check.label}</strong><small>{check.message}</small></div>
+          <em>{check.duration_seconds > 0 ? `${check.duration_seconds.toFixed(2)} s` : ""}</em>
+        </div>)}</div>
+        : <div className="diagnostics-empty">Execute o teste rápido para verificar o ambiente ou o teste completo para executar também o nf-test.</div>}
+      {result?.log && <details className="diagnostics-log"><summary>Ver log técnico</summary><pre>{result.log}</pre></details>}
+    </article>
+  </section>;
+}
 
 function Overview({ runs, setView, setSelectedRunId }: { runs: Run[]; setView:(v:View)=>void; setSelectedRunId:(id:string)=>void }) {
   const now = new Date();

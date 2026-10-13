@@ -77,8 +77,8 @@ internal sealed class LauncherEngine : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MK-Viral-Assembly");
 
-    private const string ReleaseRef = "v1.2.5";
-    private const string ReleaseRevision = "windows-activation-picker-2026-09-30";
+    private const string ReleaseRef = "v1.2.6";
+    private const string ReleaseRevision = "feature-parity-2026-10-13";
     public string? PickerDirectory { get; set; }
     public event Action<string>? Message;
     public string LogPath => Path.Combine(_dataDir, "launcher.log");
@@ -180,7 +180,8 @@ internal sealed class LauncherEngine : IDisposable
             "if [ -x \"$b/envs/mkva-webtool/bin/npm\" ]; then BASE=\"$b\"; break; fi; done; fi; " +
             "test -n \"$BASE\" && test -x \"$BASE/envs/mkva-webtool/bin/node\" && " +
             "test -x \"$BASE/envs/mkva-webtool/bin/npm\" && test -x \"$BASE/envs/nextflow/bin/nextflow\" && " +
-            "test -x \"$BASE/envs/nextflow/bin/java\" && test -d \"$PROJECT/webtool/dist\"";
+            "test -x \"$BASE/envs/nextflow/bin/java\" && test -x \"$PROJECT/tools/nf-test\" && " +
+            "test -f \"$PROJECT/tools/nf-test.version\" && test -d \"$PROJECT/webtool/dist\"";
         var result = await RunWslCaptureAsync(
             target.Distro, command, cancellationToken, target.User);
         return result.ExitCode == 0;

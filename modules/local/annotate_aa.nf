@@ -16,7 +16,7 @@ process ANNOTATE_AA {
     // Add the human-readable aa_change column when a GFF is available; otherwise
     // just pass the nucleotide-level iVar table through unchanged. This runs in a
     // Python container because the iVar image ships no interpreter.
-    def has_gff = gff && gff.name != 'NO_FILE'
+    def has_gff = gff && gff.name != 'NO_FILE' && gff.size() > 0
     """
     if ${has_gff}; then
         annotate_aa.py --in ${ivar_tsv} --gff ${gff} --out ${meta.id}.variants.tsv

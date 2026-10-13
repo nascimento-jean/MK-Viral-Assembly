@@ -45,6 +45,9 @@ fi
 if [[ -z "${MKVA_JAVA:-}" && -x "$CONDA_BASE/envs/nextflow/bin/java" ]]; then
   export MKVA_JAVA="$CONDA_BASE/envs/nextflow/bin/java"
 fi
+if [[ -z "${MKVA_NF_TEST:-}" && -x "$PROJECT_DIR/tools/nf-test" ]]; then
+  export MKVA_NF_TEST="$PROJECT_DIR/tools/nf-test"
+fi
 if [[ -z "${MKVA_NEXTFLOW:-}" || ! -x "$MKVA_NEXTFLOW" ]]; then
   echo "Nextflow não encontrado no ambiente gerenciado: $CONDA_BASE/envs/nextflow" >&2
   echo "Reabra o instalador para reparar automaticamente o ambiente." >&2

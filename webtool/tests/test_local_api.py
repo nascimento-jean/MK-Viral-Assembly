@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,39 @@ from unittest.mock import Mock, patch
 
 import local_api
 
+
+class SelfTestTests(unittest.TestCase):
+    def test_rejects_unknown_level(self):
+        with self.assertRaisesRegex(ValueError, "quick ou complete"):
+            local_api.run_self_test("arbitrary")
+
+    def test_complete_mode_runs_fixed_nf_test_and_persists_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "self-test.json"
+            log = root / "self-test.log"
+            calls = []
+
+            def fixed(label, command, env, timeout=120):
+                calls.append((label, command, timeout, env.copy()))
+                return local_api._self_test_check(label, "PASS", "ok", 0.01), "$ command\nok\n"
+
+            with patch.object(local_api, "SELF_TEST_STATE", state),                  patch.object(local_api, "SELF_TEST_LOG", log),                  patch.object(local_api, "NEXTFLOW", Path("/bin/echo")),                  patch.object(local_api, "picker_bridge_available", return_value=True),                  patch.object(local_api, "find_nf_test", return_value=Path("/bin/echo")),                  patch.object(local_api, "_run_fixed_check", side_effect=fixed):
+                result = local_api.run_self_test("complete")
+
+            self.assertIn(result["overall"], {"PASS", "WARN"})
+            self.assertTrue(state.is_file())
+            self.assertTrue(log.is_file())
+            self.assertEqual(local_api.load_self_test()["level"], "complete")
+            labels = [label for label, _command, _timeout, _env in calls]
+            self.assertEqual(labels, [
+                "Nextflow e Java", "Compilação do grafo do pipeline",
+                "nf-test com dados sintéticos",
+            ])
+            nf_command = calls[-1][1]
+            self.assertEqual(nf_command[1:4], ["test", "tests/nf-test", "--ci"])
+            self.assertIn("--without-trace", nf_command)
+            self.assertIn("/usr/bin", calls[-1][3]["PATH"].split(os.pathsep))
 
 class MetadataTemplateTests(unittest.TestCase):
     def test_all_metadata_templates_are_packaged(self):

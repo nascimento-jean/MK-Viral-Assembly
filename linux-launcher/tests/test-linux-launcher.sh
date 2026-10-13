@@ -19,7 +19,7 @@ python3 -m py_compile "$LINUX/mkva-window"
 MKVA_WINDOW_TEST=1 "$LINUX/mkva-window" | grep -q '^MKVA_WINDOW_URL=http://127.0.0.1:3000$'
 sh -n "$LINUX/package/DEBIAN/postinst" "$LINUX/package/DEBIAN/postrm"
 MKVA_BOOTSTRAP_TEST=1 \
-MKVA_RELEASE_REF=v1.2.5 \
+MKVA_RELEASE_REF=v1.2.6 \
 MKVA_APP_DATA_DIR="$TEST_ROOT/bootstrap-data" \
 "$LINUX/bootstrap-linux.sh" | grep -q '^MKVA_TARGET='
 MKVA_LAUNCHER_TEST=1 \
@@ -55,6 +55,10 @@ grep -q 'gir1.2-webkit2-4.1' "$LINUX/package/DEBIAN/control.in"
 grep -q 'nohup "$APP_WINDOW" "$url"' "$LINUX/mkva-webtool"
 ! grep -q 'xdg-open' "$LINUX/mkva-webtool"
 grep -q 'nohup setsid env' "$LINUX/mkva-webtool"
+grep -q 'NF_TEST_VERSION="${MKVA_NF_TEST_VERSION:-0.9.5}"' "$LINUX/bootstrap-linux.sh"
+grep -q 'https://get.nf-test.com' "$LINUX/bootstrap-linux.sh"
+grep -q 'MKVA_NF_TEST="$NF_TEST_BIN"' "$LINUX/bootstrap-linux.sh"
+grep -q 'revision=$RELEASE_REVISION' "$LINUX/bootstrap-linux.sh"
 grep -q 'kill -TERM -- "-$pid"' "$LINUX/mkva-webtool"
 grep -q 'User data.*intentionally preserved' "$LINUX/package/DEBIAN/postrm"
 

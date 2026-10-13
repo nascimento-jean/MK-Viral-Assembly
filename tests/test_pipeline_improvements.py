@@ -64,7 +64,7 @@ class PipelineImprovementTests(unittest.TestCase):
         workflow = (ROOT / "main.nf").read_text(encoding="utf-8")
         module = (ROOT / "modules" / "local" / "dashboard.nf").read_text(encoding="utf-8")
         for channel in ("ch_dash_amplicon", "ch_dash_coding", "ch_dash_vcf"):
-            self.assertIn(f".join( {channel}, remainder: true )", workflow)
+            self.assertIn(f".mix( {channel}.map", workflow)
         for option in ("--amplicon-dir", "--coding-qc-dir", "--vcf-dir"):
             self.assertIn(option, module)
 
@@ -190,6 +190,121 @@ class PipelineImprovementTests(unittest.TestCase):
             self.assertEqual(row["breadth_ge_min_depth"], "1.0000")
             self.assertEqual(row["dropout"], "NO")
 
+    def test_isnv_filters_frequency_depth_quality_and_strand_support(self):
+        module = load_script("isnv_filter.py")
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            root = Path(directory)
+            source, output = root / "raw.tsv", root / "isnv.tsv"
+            source.write_text(
+                "REGION\tPOS\tREF\tALT\tTOTAL_DP\tALT_DP\tALT_RV\tALT_FREQ\tALT_QUAL\n"
+                "ref\t10\tA\tG\t200\t30\t14\t0.15\t35\n"
+                "ref\t20\tC\tT\t80\t5\t0\t0.0625\t15\n",
+                encoding="utf-8",
+            )
+            run_main(module, "--sample", "S1", "--input", source, "--output", output)
+            with output.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(rows[0]["status"], "PASS")
+            self.assertEqual(rows[0]["filter_reasons"], "-")
+            self.assertEqual(rows[1]["status"], "REVIEW")
+            self.assertIn("LOW_DEPTH", rows[1]["filter_reasons"])
+            self.assertIn("STRAND_BIAS", rows[1]["filter_reasons"])
+
+    def test_snpeff_summary_parses_multiple_ann_effects(self):
+        module = load_script("snpeff_summary.py")
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            root = Path(directory)
+            vcf, output = root / "annotated.vcf", root / "summary.tsv"
+            vcf.write_text(
+                "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                "ref\t42\t.\tA\tG\t35\tPASS\tANN=G|missense_variant|MODERATE|E1|gene1|transcript|tx1||||p.Lys14Arg|||||\n",
+                encoding="utf-8",
+            )
+            run_main(module, "--sample", "S1", "--vcf", vcf, "--output", output)
+            with output.open(newline="", encoding="utf-8") as handle:
+                row = next(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(row["effect"], "missense_variant")
+            self.assertEqual(row["impact"], "MODERATE")
+            self.assertEqual(row["status"], "OK")
+
+            recovered = root / "summary_recovered.tsv"
+            run_main(
+                module, "--sample", "S1", "--vcf", vcf, "--output", recovered,
+                "--status", "SNPSIFT_FAILED",
+                "--message", "SnpSift filtering failed; unfiltered SnpEff VCF retained",
+            )
+            with recovered.open(newline="", encoding="utf-8") as handle:
+                recovered_row = next(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(recovered_row["effect"], "missense_variant")
+            self.assertEqual(recovered_row["status"], "SNPSIFT_FAILED")
+            self.assertIn("unfiltered SnpEff VCF retained", recovered_row["message"])
+
+    def test_snpeff_and_snpsift_use_dedicated_reproducible_containers(self):
+        source = (ROOT / "modules/local/snpeff.nf").read_text(encoding="utf-8")
+        main = (ROOT / "main.nf").read_text(encoding="utf-8")
+        config = (ROOT / "conf/modules.config").read_text(encoding="utf-8")
+        self.assertIn("process SNPEFF_ANNOTATE", source)
+        self.assertIn("snpeff:5.2--hdfd78af_0", source)
+        self.assertIn("process SNPSIFT_FILTER", source)
+        self.assertIn("snpsift:5.2--hdfd78af_0", source)
+        self.assertIn('SnpSift filter', source)
+        self.assertIn("SNPSIFT_FILTER.out.tsv", main)
+        self.assertIn("withName: 'SNPSIFT_FILTER'", config)
+
+    def test_windows_and_ubuntu_installers_share_release_and_self_test_contract(self):
+        windows = (ROOT / "windows-launcher" / "bootstrap-wsl.sh").read_text(encoding="utf-8")
+        linux = (ROOT / "linux-launcher" / "bootstrap-linux.sh").read_text(encoding="utf-8")
+        for expected in (
+            'RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.6}"',
+            'RELEASE_REVISION="${MKVA_RELEASE_REVISION:-feature-parity-2026-10-13}"',
+            'NF_TEST_VERSION="${MKVA_NF_TEST_VERSION:-0.9.5}"',
+            "https://get.nf-test.com",
+            'MKVA_NF_TEST="$NF_TEST_BIN"',
+        ):
+            self.assertIn(expected, windows)
+            self.assertIn(expected, linux)
+
+    def test_windows_installer_pins_and_exposes_nf_test(self):
+        bootstrap = (ROOT / "windows-launcher" / "bootstrap-wsl.sh").read_text(encoding="utf-8")
+        start = (ROOT / "webtool" / "start-local.sh").read_text(encoding="utf-8")
+        verify = (ROOT / "webtool" / "verify-install.sh").read_text(encoding="utf-8")
+        launcher = (ROOT / "windows-launcher" / "launcher" / "Program.cs").read_text(encoding="utf-8")
+        self.assertIn('NF_TEST_VERSION="${MKVA_NF_TEST_VERSION:-0.9.5}"', bootstrap)
+        self.assertIn("https://get.nf-test.com", bootstrap)
+        self.assertIn('MKVA_NF_TEST="$NF_TEST_BIN"', bootstrap)
+        self.assertIn('export MKVA_NF_TEST="$PROJECT_DIR/tools/nf-test"', start)
+        self.assertIn('"$NF_TEST" version', verify)
+        self.assertIn('$PROJECT/tools/nf-test', launcher)
+
+
+    def test_pipeline_uses_only_user_supplied_reference(self):
+        main = (ROOT / "main.nf").read_text(encoding="utf-8")
+        config = (ROOT / "nextflow.config").read_text(encoding="utf-8")
+        schema = (ROOT / "nextflow_schema.json").read_text(encoding="utf-8")
+        webtool = (ROOT / "webtool" / "local_api.py").read_text(encoding="utf-8")
+        combined = "\n".join((main, config, schema, webtool))
+        for discarded in ("reference_mode", "reference_panel", "primer_scheme",
+                          "REFERENCE_SELECT", "CONSENSUS_SELECT", "ALIGN_AUTO"):
+            self.assertNotIn(discarded, combined)
+        self.assertIn("ch_consensus_final = IVAR_CONSENSUS.out.consensus", main)
+        self.assertIn("ch_bam_final = ch_bam_manual_final", main)
+        self.assertIn('cmd.extend(["--reference", normalized["reference"]', webtool)
+
+    def test_metadata_export_requires_consensus_qc_and_uses_fixed_slots(self):
+        source = (ROOT / "main.nf").read_text(encoding="utf-8")
+        self.assertIn("ch_meta_tagged = ch_meta_qc.map", source)
+        self.assertIn("[vdir, 'qc', files]", source)
+        self.assertIn(".groupTuple(by: 0)", source)
+        self.assertIn(".filter { row -> row[1] }", source)
+        self.assertIn("slots = [qc: [], reads: [], nextclade: [], blast: []]", source)
+
+    def test_dashboard_aggregation_uses_fixed_width_tagged_rows(self):
+        main = (ROOT / "main.nf").read_text(encoding="utf-8")
+        self.assertIn("ch_dash_tagged = ch_dash_qc.map", main)
+        self.assertIn(".groupTuple(by: 0)", main)
+        self.assertIn("validation_krona: []", main)
+        self.assertIn("slots.snpeff, slots.iterative", main)
+        self.assertNotIn("ch_dash_in = ch_dash_qc\n            .join", main)
 
 if __name__ == "__main__":
     unittest.main()

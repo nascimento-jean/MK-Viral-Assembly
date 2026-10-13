@@ -19,7 +19,11 @@ process DASHBOARD {
           path(validation_krona, stageAs: "validation_krona/*"),
           path(amplicon_files, stageAs: "amplicon_coverage/*"),
           path(coding_qc_files, stageAs: "coding_qc/*"),
-          path(vcf_files, stageAs: "vcf/*")
+          path(vcf_files, stageAs: "vcf/*"),
+          path(isnv_files, stageAs: "isnv/*"),
+          path(snpeff_files, stageAs: "snpeff/*"),
+          path(iterative_files, stageAs: "iterative/*"),
+          path(provenance_file, stageAs: "provenance/*")
 
     output:
     tuple val(virus), path("${virus}_dashboard.html"), emit: html
@@ -43,6 +47,10 @@ process DASHBOARD {
     def amp_arg  = amplicon_files ? "--amplicon-dir amplicon_coverage" : ""
     def coding_arg = coding_qc_files ? "--coding-qc-dir coding_qc" : ""
     def vcf_arg = vcf_files ? "--vcf-dir vcf" : ""
+    def isnv_arg = isnv_files ? "--isnv-dir isnv" : ""
+    def snpeff_arg = snpeff_files ? "--snpeff-dir snpeff" : ""
+    def iterative_arg = iterative_files ? "--iterative-dir iterative" : ""
+    def provenance_arg = provenance_file ? "--provenance provenance/run_provenance.tsv" : ""
     """
     make_dashboard.py \\
         --qc-dir consensus_qc \\
@@ -60,6 +68,10 @@ process DASHBOARD {
         ${amp_arg} \\
         ${coding_arg} \\
         ${vcf_arg} \\
+        ${isnv_arg} \\
+        ${snpeff_arg} \\
+        ${iterative_arg} \\
+        ${provenance_arg} \\
         --out ${virus}_dashboard.html \\
         --run-name "${run_name}" \\
         --pass ${params.dash_pass} \\

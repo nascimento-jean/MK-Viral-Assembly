@@ -50,3 +50,20 @@ grep -q '^updated$' "$install/release-file.txt"
 grep -q '^history$' "$install/webtool/.local-data/jobs.json"
 grep -q '^database$' "$install/assets/blast_refseq_viral/refseq_viral.nsq"
 [[ ! -e "$install/webtool/native_picker.cs" ]]
+
+# Exercise the same managed-source upgrade on native Ubuntu, preserving data.
+printf 'old\n' > "$install/main.nf"
+output="$(
+  MKVA_REPOSITORY="file://$repository" \
+  MKVA_RELEASE_REF=vtest \
+  MKVA_RELEASE_REVISION=feature-parity-2026-10-13 \
+  MKVA_INSTALL_DIR="$install" \
+  MKVA_APP_DATA_DIR="$TEST_ROOT/linux-data" \
+  MKVA_BOOTSTRAP_SOURCE_TEST=1 \
+  bash "$ROOT/linux-launcher/bootstrap-linux.sh"
+)"
+grep -q '^MKVA_TARGET=' <<<"$output"
+grep -q '^nextflow.enable.dsl=2$' "$install/main.nf"
+grep -q '^history$' "$install/webtool/.local-data/jobs.json"
+grep -q '^database$' "$install/assets/blast_refseq_viral/refseq_viral.nsq"
+echo "Windows and Ubuntu source-update checks passed."

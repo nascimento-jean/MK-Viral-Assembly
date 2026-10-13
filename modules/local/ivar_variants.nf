@@ -16,7 +16,7 @@ process IVAR_VARIANTS {
 
     script:
     // -g <gff> makes iVar annotate REF_AA/ALT_AA/POS_AA; skipped when no GFF is provided.
-    def has_gff = gff && gff.name != 'NO_FILE'
+    def has_gff = gff && gff.name != 'NO_FILE' && gff.size() > 0
     def gff_arg = has_gff ? "-g ${gff}" : ""
     """
     samtools faidx ${reference}

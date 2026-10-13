@@ -1,0 +1,37 @@
+nextflow_process {
+    name "ISNV_FILTER explicit scientific thresholds"
+    script "modules/local/isnv_filter.nf"
+    process "ISNV_FILTER"
+
+    test("separates passing iSNVs from calls requiring review") {
+        when {
+            params {
+                isnv_min_depth = 100
+                isnv_min_alt_reads = 10
+                isnv_min_freq = 0.02
+                isnv_max_freq = 0.50
+                isnv_min_qual = 20
+                isnv_min_strand_reads = 3
+                isnv_min_strand_balance = 0.10
+            }
+            process {
+                """
+                input[0] = Channel.of([
+                    [id: 'S1'],
+                    file("${projectDir}/tests/nf-test/data/isnv.raw.tsv")
+                ])
+                input[1] = file("${projectDir}/bin/isnv_filter.py")
+                """
+            }
+        }
+        then {
+            assert process.success
+            assert process.out.tsv.size() == 1
+            def report = path(process.out.tsv.get(0)[1]).text
+            assert report.contains("ref\t10\tA\tG\t200\t30\t0.150000")
+            assert report.contains("PASS\t-")
+            assert report.contains("REVIEW\tLOW_DEPTH")
+            assert report.contains("STRAND_BIAS")
+        }
+    }
+}

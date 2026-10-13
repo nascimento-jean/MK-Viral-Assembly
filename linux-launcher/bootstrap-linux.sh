@@ -2,13 +2,15 @@
 set -euo pipefail
 
 REPOSITORY="${MKVA_REPOSITORY:-https://github.com/nascimento-jean/MK-Viral-Assembly}"
-RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.5}"
+RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.6}"
+RELEASE_REVISION="${MKVA_RELEASE_REVISION:-feature-parity-2026-10-13}"
 APP_DATA_DIR="${MKVA_APP_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mk-viral-assembly}"
 INSTALL_DIR="${MKVA_INSTALL_DIR:-$APP_DATA_DIR/source}"
 MINIFORGE_DIR="${MKVA_CONDA_DIR:-$APP_DATA_DIR/miniforge3}"
 NEXTFLOW_ENV="$APP_DATA_DIR/envs/nextflow"
 WEBTOOL_ENV="$APP_DATA_DIR/envs/mkva-webtool"
 WORK_DIR="$(mktemp -d -t mkva-linux-install-XXXXXX)"
+NF_TEST_VERSION="${MKVA_NF_TEST_VERSION:-0.9.5}"
 
 cleanup() {
   case "$WORK_DIR" in
@@ -35,10 +37,25 @@ command -v python3 >/dev/null || fail "Python 3 is required."
 command -v tar >/dev/null || fail "The tar utility is required."
 mkdir -p "$APP_DATA_DIR" "$APP_DATA_DIR/envs"
 
+MARKER="$INSTALL_DIR/.mkva-managed-install"
+INSTALLED_RELEASE=""
+INSTALLED_REVISION=""
+if [[ -f "$MARKER" ]]; then
+  INSTALLED_RELEASE="$(sed -n 's/^release=//p' "$MARKER" | head -n 1)"
+  INSTALLED_REVISION="$(sed -n 's/^revision=//p' "$MARKER" | head -n 1)"
+fi
+
+NEEDS_SOURCE=0
 if [[ ! -f "$INSTALL_DIR/main.nf" || ! -x "$INSTALL_DIR/webtool/start-local.sh" ]]; then
-  if [[ -e "$INSTALL_DIR" ]]; then
-    fail "$INSTALL_DIR exists but is not a complete installation. Rename it and open the application again."
+  if [[ -e "$INSTALL_DIR" && ! -f "$MARKER" ]]; then
+    fail "$INSTALL_DIR exists but is not a complete managed installation. Rename it and open the application again."
   fi
+  NEEDS_SOURCE=1
+elif [[ "$INSTALLED_RELEASE" != "$RELEASE_REF" || "$INSTALLED_REVISION" != "$RELEASE_REVISION" ]]; then
+  NEEDS_SOURCE=1
+fi
+
+if [[ "$NEEDS_SOURCE" == "1" ]]; then
   status "Downloading MK-Viral-Assembly ${RELEASE_REF}..."
   archive="$WORK_DIR/mkva.tar.gz"
   if [[ "$RELEASE_REF" == v* ]]; then
@@ -60,8 +77,18 @@ PY
   mkdir -p "$WORK_DIR/source"
   tar -xzf "$archive" -C "$WORK_DIR/source" --strip-components=1
   [[ -f "$WORK_DIR/source/main.nf" ]] || fail "The downloaded release is not a valid MK-Viral-Assembly package."
-  chmod +x "$WORK_DIR/source/webtool/start-local.sh" "$WORK_DIR/source/webtool/verify-install.sh"
-  mv "$WORK_DIR/source" "$INSTALL_DIR"
+  chmod +x "$WORK_DIR/source/webtool/start-local.sh" "$WORK_DIR/source/webtool/stop-local.py" "$WORK_DIR/source/webtool/verify-install.sh"
+  if [[ -e "$INSTALL_DIR" ]]; then
+    status "Updating the managed MK-Viral-Assembly installation..."
+    cp -a "$WORK_DIR/source/." "$INSTALL_DIR/"
+  else
+    mv "$WORK_DIR/source" "$INSTALL_DIR"
+  fi
+fi
+
+if [[ "${MKVA_BOOTSTRAP_SOURCE_TEST:-}" == "1" ]]; then
+  printf 'MKVA_TARGET=%s\n' "$INSTALL_DIR"
+  exit 0
 fi
 
 if [[ ! -x "$MINIFORGE_DIR/bin/conda" ]]; then
@@ -87,6 +114,32 @@ if [[ ! -x "$NEXTFLOW_ENV/bin/nextflow" || ! -x "$NEXTFLOW_ENV/bin/java" ]]; the
   "$CONDA_EXE" create -y -p "$NEXTFLOW_ENV" -c conda-forge -c bioconda nextflow 'openjdk=17'
 fi
 
+NF_TEST_BIN="$INSTALL_DIR/tools/nf-test"
+NF_TEST_VERSION_FILE="$INSTALL_DIR/tools/nf-test.version"
+INSTALLED_NF_TEST_VERSION="$(cat "$NF_TEST_VERSION_FILE" 2>/dev/null || true)"
+if [[ ! -x "$NF_TEST_BIN" || "$INSTALLED_NF_TEST_VERSION" != "$NF_TEST_VERSION" ]]; then
+  status "Installing nf-test ${NF_TEST_VERSION} for the WebTool self-test..."
+  mkdir -p "$INSTALL_DIR/tools"
+  nf_test_installer="$WORK_DIR/install-nf-test.sh"
+  python3 - "$nf_test_installer" <<'PY_NF_TEST'
+import pathlib
+import sys
+import urllib.request
+request = urllib.request.Request(
+    "https://get.nf-test.com",
+    headers={"User-Agent": "MK-Viral-Assembly-Ubuntu-Installer"},
+)
+with urllib.request.urlopen(request, timeout=300) as response:
+    pathlib.Path(sys.argv[1]).write_bytes(response.read())
+PY_NF_TEST
+  (
+    cd "$INSTALL_DIR/tools"
+    bash "$nf_test_installer" "$NF_TEST_VERSION"
+  )
+  [[ -x "$NF_TEST_BIN" ]] || fail "nf-test installation did not produce the expected executable."
+  printf '%s\n' "$NF_TEST_VERSION" > "$NF_TEST_VERSION_FILE"
+fi
+
 status "Installing the WebTool runtime..."
 if [[ ! -x "$WEBTOOL_ENV/bin/npm" || ! -x "$WEBTOOL_ENV/bin/node" ]]; then
   "$CONDA_EXE" create -y -p "$WEBTOOL_ENV" -c conda-forge 'nodejs=22'
@@ -102,12 +155,14 @@ status "Preparing the graphical interface..."
 status "Validating the installation..."
 MKVA_NEXTFLOW="$NEXTFLOW_ENV/bin/nextflow" \
 MKVA_JAVA="$NEXTFLOW_ENV/bin/java" \
+MKVA_NF_TEST="$NF_TEST_BIN" \
 MKVA_NODE_ENV_BIN="$WEBTOOL_ENV/bin" \
 "$INSTALL_DIR/webtool/verify-install.sh"
 
 cat > "$INSTALL_DIR/.mkva-managed-install" <<EOF
 repository=$REPOSITORY
 release=$RELEASE_REF
+revision=$RELEASE_REVISION
 platform=ubuntu
 installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF

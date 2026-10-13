@@ -13,6 +13,7 @@ import posixpath
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from html.parser import HTMLParser
@@ -293,6 +294,50 @@ class ExcelExportTests(unittest.TestCase):
         for item in downloads:
             workbook(item)
 
+    def test_isnv_snpeff_iterative_and_provenance_tabs_render_real_rows(self):
+        sample = {"ALL": {"completeness": "0.98", "breadth_ge_20x": "0.97",
+                          "mean_depth": "500", "consensus_length": "11000",
+                          "n_bases": "10", "ref_positions": "11000"}, "segments": []}
+        doc = dashboard.build_html(
+            "Extended analyses", {"S1": sample}, {}, "breadth_ge_20x", 0.9, 0.7, 20,
+            isnv_records=[{
+                "sample": "S1", "contig": "ref", "position": "42", "ref": "A", "alt": "G",
+                "depth": "200", "alt_depth": "30", "alt_frequency": "0.15",
+                "alt_forward": "16", "alt_reverse": "14", "status": "PASS",
+                "filter_reasons": "-",
+            }],
+            snpeff_records=[{
+                "sample": "S1", "chrom": "ref", "position": "42",
+                "effect": "missense_variant", "impact": "MODERATE", "gene": "E1",
+                "hgvs_c": "c.41A>G", "hgvs_p": "p.Lys14Arg", "warnings": "-",
+                "status": "SNPSIFT_FAILED",
+                "message": "SnpSift filtering failed; unfiltered SnpEff VCF retained",
+            }],
+            iterative_records=[{
+                "sample": "S1", "round1_completeness": "0.98",
+                "round2_completeness": "0.981", "completeness_gain": "0.001",
+                "round1_breadth": "0.97", "round2_breadth": "0.971",
+                "recommendation": "NO_MEANINGFUL_GAIN",
+            }],
+            provenance=[{
+                "category": "tool", "name": "Nextflow", "version_or_release": "26.04.6",
+                "source": "runtime", "details": "captured during analysis",
+            }],
+        )
+        dom = DashboardDOM(doc)
+        for slug in ("isnv", "snpeff", "iterative", "provenance"):
+            self.assertIn(f'data-tab="{slug}"', doc)
+        for table in ("tbl-isnv", "tbl-snpeff", "tbl-iterative", "tbl-provenance"):
+            self.assertEqual(len(dom.tables[table]["rows"]), 1, table)
+        self.assertIn("missense_variant", doc)
+        self.assertIn("SnpEff/SnpSift annotation warnings", doc)
+        self.assertIn("SNPSIFT_FAILED", doc)
+        self.assertIn("NO_MEANINGFUL_GAIN", doc)
+        filenames = [item["filename"] for item in export(dom)["downloads"]]
+        self.assertIn("isnv_calls.xlsx", filenames)
+        self.assertIn("snpeff_annotations.xlsx", filenames)
+        self.assertIn("versions_databases.xlsx", filenames)
+
     def test_new_analysis_files_are_loaded_from_pipeline_formats(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
             root = Path(directory)
@@ -309,6 +354,41 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(dashboard.load_amplicon_coverage(root)[0]["amplicon"], "amp1")
             self.assertEqual(dashboard.load_coding_qc(root)[0]["feature"], "E1")
             self.assertEqual(dashboard.load_vcf(root)[0]["allele_frequency"], "0.31")
+
+
+    def test_validation_only_dashboard_is_generated_without_qc_tables(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            root = Path(directory)
+            qc_dir = root / "qc"
+            validation_dir = root / "validation"
+            qc_dir.mkdir()
+            validation_dir.mkdir()
+            (validation_dir / "S1.sample_validation.tsv").write_text(
+                "sample\tinput_status\tinput_issue\tfastq_1\tfastq_2\tsample_role\tis_negative_control\n"
+                "S1\tskipped\tR1=no_reads;R2=no_reads\tS1_R1.fastq.gz\tS1_R2.fastq.gz\tsample\tfalse\n",
+                encoding="utf-8",
+            )
+            output = root / "dashboard.html"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "bin/make_dashboard.py"),
+                    "--qc-dir", str(qc_dir),
+                    "--validation-dir", str(validation_dir),
+                    "--out", str(output),
+                    "--run-name", "Validation only",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            doc = output.read_text(encoding="utf-8")
+            self.assertIn("No consensus sequences were generated for this virus group.", doc)
+            self.assertIn("Run Validation", doc)
+            self.assertIn("S1", doc)
+            self.assertIn("R1=no_reads;R2=no_reads", doc)
+
 
 
 if __name__ == "__main__":

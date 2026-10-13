@@ -15,6 +15,12 @@ The package installs only a small desktop launcher, icon and bootstrap script. O
 
 Logs are written under `~/.local/state/mk-viral-assembly/`. Removing the Debian package intentionally preserves this user directory, including analysis history, optional BLAST databases and any results saved there.
 
+Both desktop installers download the same tagged source release. After upgrading
+the Debian package, the launcher compares the installed release and revision and
+updates the managed source and interface when needed. Finish any running analyses
+and run `mk-viral-assembly --stop` before reopening the upgraded application.
+Analysis history and local databases are preserved during source updates.
+
 ## Build without installing
 
 ```bash

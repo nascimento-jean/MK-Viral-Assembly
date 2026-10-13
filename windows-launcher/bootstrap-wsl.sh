@@ -2,11 +2,12 @@
 set -euo pipefail
 
 REPOSITORY="${MKVA_REPOSITORY:-https://github.com/nascimento-jean/MK-Viral-Assembly}"
-RELEASE_REF="${MKVA_RELEASE_REF:-main}"
-RELEASE_REVISION="${MKVA_RELEASE_REVISION:-windows-activation-picker-2026-09-30}"
+RELEASE_REF="${MKVA_RELEASE_REF:-v1.2.6}"
+RELEASE_REVISION="${MKVA_RELEASE_REVISION:-feature-parity-2026-10-13}"
 INSTALL_DIR="${MKVA_INSTALL_DIR:-$HOME/MK-Viral-Assembly}"
 MINIFORGE_DIR="${MKVA_CONDA_DIR:-$HOME/miniforge3}"
 WORK_DIR="$(mktemp -d -t mkva-install-XXXXXX)"
+NF_TEST_VERSION="${MKVA_NF_TEST_VERSION:-0.9.5}"
 
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
@@ -104,6 +105,31 @@ status "Installing Nextflow and Java..."
 if [[ ! -x "$CONDA_BASE/envs/nextflow/bin/nextflow" ]]; then
   "$CONDA_EXE" create -y -n nextflow -c conda-forge -c bioconda nextflow 'openjdk=17'
 fi
+
+NF_TEST_BIN="$INSTALL_DIR/tools/nf-test"
+NF_TEST_VERSION_FILE="$INSTALL_DIR/tools/nf-test.version"
+INSTALLED_NF_TEST_VERSION="$(cat "$NF_TEST_VERSION_FILE" 2>/dev/null || true)"
+if [[ ! -x "$NF_TEST_BIN" || "$INSTALLED_NF_TEST_VERSION" != "$NF_TEST_VERSION" ]]; then
+  status "Installing nf-test ${NF_TEST_VERSION} for the WebTool self-test..."
+  mkdir -p "$INSTALL_DIR/tools"
+  NF_TEST_INSTALLER="$WORK_DIR/install-nf-test.sh"
+  python3 - "$NF_TEST_INSTALLER" <<'PY_NF_TEST'
+import pathlib, sys, urllib.request
+request = urllib.request.Request(
+    "https://get.nf-test.com",
+    headers={"User-Agent": "MK-Viral-Assembly-Installer"},
+)
+with urllib.request.urlopen(request, timeout=120) as response:
+    pathlib.Path(sys.argv[1]).write_bytes(response.read())
+PY_NF_TEST
+  (
+    cd "$INSTALL_DIR/tools"
+    bash "$NF_TEST_INSTALLER" "$NF_TEST_VERSION"
+  )
+  [[ -x "$NF_TEST_BIN" ]] || fail "nf-test installation did not produce the expected executable."
+  printf '%s
+' "$NF_TEST_VERSION" > "$NF_TEST_VERSION_FILE"
+fi
 status "Installing the WebTool runtime..."
 if [[ ! -x "$CONDA_BASE/envs/mkva-webtool/bin/npm" ]]; then
   "$CONDA_EXE" create -y -n mkva-webtool -c conda-forge 'nodejs=22'
@@ -117,7 +143,7 @@ status "Preparing the WebTool interface..."
   PATH="$NODE_BIN:$PATH" "$NODE_BIN/npm" run build
 )
 status "Validating the installation..."
-MKVA_NEXTFLOW="$CONDA_BASE/envs/nextflow/bin/nextflow" MKVA_JAVA="$CONDA_BASE/envs/nextflow/bin/java" MKVA_NODE_ENV_BIN="$NODE_BIN" "$INSTALL_DIR/webtool/verify-install.sh"
+MKVA_NEXTFLOW="$CONDA_BASE/envs/nextflow/bin/nextflow" MKVA_JAVA="$CONDA_BASE/envs/nextflow/bin/java" MKVA_NF_TEST="$NF_TEST_BIN" MKVA_NODE_ENV_BIN="$NODE_BIN" "$INSTALL_DIR/webtool/verify-install.sh"
 
 cat > "$INSTALL_DIR/.mkva-managed-install" <<EOF
 repository=$REPOSITORY
